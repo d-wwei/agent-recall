@@ -1,0 +1,35 @@
+Agent Recall
+============
+
+This project is a fork of claude-mem (https://github.com/thedotmack/claude-mem)
+by Alex Newman (@thedotmack), licensed under AGPL-3.0.
+
+Additional design patterns and concepts are incorporated from claude-recall
+(https://github.com/d-wwei/claude-recall) by d-wwei, licensed under MIT.
+
+Original Works
+--------------
+
+claude-mem:
+  Copyright (C) 2025 Alex Newman (@thedotmack)
+  License: GNU Affero General Public License v3.0
+  Repository: https://github.com/thedotmack/claude-mem
+
+claude-recall:
+  Copyright (C) 2026 d-wwei
+  License: MIT
+  Repository: https://github.com/d-wwei/claude-recall
+
+Fork Modifications
+------------------
+
+Copyright (C) 2026 Eli
+License: GNU Affero General Public License v3.0
+
+The fork includes:
+- Agent persona system (self-awareness layer inspired by claude-recall)
+- Bootstrap interview system (adapted from claude-recall's 3-round flow)
+- Session recovery with active task tracking
+- Memory layering with global/project scope
+- Memory promotion across projects
+- Session archiving with temporal and topic recall
