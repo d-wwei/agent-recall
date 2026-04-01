@@ -27,7 +27,20 @@ export class PrivacyCheckValidator {
   ): string | null {
     const userPrompt = store.getUserPrompt(contentSessionId, promptNumber);
 
-    if (!userPrompt || userPrompt.trim() === '') {
+    // No prompt found — this happens when PostToolUse fires before UserPromptSubmit
+    // records the prompt (race condition), or when hooks aren't fully configured.
+    // Treat as public (allow processing) rather than private (skip).
+    if (userPrompt === undefined || userPrompt === null) {
+      logger.debug('HOOK', `No user prompt found for ${operationType}, proceeding anyway (not private)`, {
+        sessionId: sessionDbId,
+        promptNumber,
+        ...additionalContext
+      });
+      return '[prompt not yet recorded]';
+    }
+
+    // Prompt exists but is empty after privacy tag stripping — actually private
+    if (userPrompt.trim() === '') {
       logger.debug('HOOK', `Skipping ${operationType} - user prompt was entirely private`, {
         sessionId: sessionDbId,
         promptNumber,
