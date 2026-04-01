@@ -6,12 +6,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$AGENT_RECALL_ROOT/plugin/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/plugin/scripts/worker-service.cjs\" start",
+            "command": "node \"$AGENT_RECALL_ROOT/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/scripts/worker-service.cjs\" start",
             "timeout": 60
           },
           {
             "type": "command",
-            "command": "node \"$AGENT_RECALL_ROOT/plugin/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/plugin/scripts/worker-service.cjs\" hook gemini-cli context",
+            "command": "node \"$AGENT_RECALL_ROOT/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/scripts/worker-service.cjs\" hook gemini-cli context",
             "timeout": 60
           }
         ]
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$AGENT_RECALL_ROOT/plugin/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/plugin/scripts/worker-service.cjs\" hook gemini-cli session-init",
+            "command": "node \"$AGENT_RECALL_ROOT/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/scripts/worker-service.cjs\" hook gemini-cli session-init",
             "timeout": 60
           }
         ]
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$AGENT_RECALL_ROOT/plugin/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/plugin/scripts/worker-service.cjs\" hook gemini-cli observation",
+            "command": "node \"$AGENT_RECALL_ROOT/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/scripts/worker-service.cjs\" hook gemini-cli observation",
             "timeout": 120
           }
         ]
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$AGENT_RECALL_ROOT/plugin/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/plugin/scripts/worker-service.cjs\" hook gemini-cli summarize",
+            "command": "node \"$AGENT_RECALL_ROOT/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/scripts/worker-service.cjs\" hook gemini-cli summarize",
             "timeout": 120
           }
         ]
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$AGENT_RECALL_ROOT/plugin/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/plugin/scripts/worker-service.cjs\" hook gemini-cli session-complete",
+            "command": "node \"$AGENT_RECALL_ROOT/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/scripts/worker-service.cjs\" hook gemini-cli session-complete",
             "timeout": 30
           }
         ]

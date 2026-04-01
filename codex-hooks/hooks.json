@@ -33,7 +33,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "*",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
@@ -50,6 +50,17 @@
             "type": "command",
             "command": "node \"$AGENT_RECALL_ROOT/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/scripts/worker-service.cjs\" hook codex summarize",
             "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$AGENT_RECALL_ROOT/scripts/bun-runner.js\" \"$AGENT_RECALL_ROOT/scripts/worker-service.cjs\" hook codex session-complete",
+            "timeout": 30
           }
         ]
       }

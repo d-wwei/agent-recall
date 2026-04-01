@@ -34,7 +34,7 @@ import { renderActiveTask } from './sections/ActiveTaskRenderer.js';
 import { renderMarkdownEmptyState } from './formatters/MarkdownFormatter.js';
 import { renderColorEmptyState } from './formatters/ColorFormatter.js';
 import { PersonaService } from '../persona/PersonaService.js';
-import type { MergedPersona, ActiveTaskRow } from '../persona/PersonaTypes.js';
+import type { MergedPersona, ActiveTaskRow, BootstrapStateRow } from '../persona/PersonaTypes.js';
 
 // Version marker path for native module error handling
 const VERSION_MARKER_PATH = path.join(
@@ -68,10 +68,26 @@ function initializeDatabase(): SessionStore | null {
 }
 
 /**
- * Render empty state when no data exists
+ * Render empty state when no data exists.
+ * If bootstrap has not been completed, include a welcome prompt.
  */
-function renderEmptyState(project: string, useColors: boolean): string {
-  return useColors ? renderColorEmptyState(project) : renderMarkdownEmptyState(project);
+function renderEmptyState(
+  project: string,
+  useColors: boolean,
+  bootstrapStatus?: BootstrapStateRow | null
+): string {
+  const base = useColors ? renderColorEmptyState(project) : renderMarkdownEmptyState(project);
+
+  // If bootstrap is not completed, append a welcome prompt
+  const needsBootstrap = !bootstrapStatus || bootstrapStatus.status !== 'completed';
+  if (needsBootstrap) {
+    const welcomeMessage = useColors
+      ? `\n\x1b[33m\x1b[1m★ Welcome to Agent Recall!\x1b[0m\n\x1b[33mRun /bootstrap to set up your agent persona and preferences.\x1b[0m\n\x1b[2mThis creates a persistent identity that carries across sessions.\x1b[0m\n`
+      : `\n**Welcome to Agent Recall!** Run /bootstrap to set up your agent persona and preferences.\nThis creates a persistent identity that carries across sessions.\n`;
+    return base + welcomeMessage;
+  }
+
+  return base;
 }
 
 /**
@@ -184,13 +200,15 @@ export async function generateContext(
       ? querySummariesMulti(db, projects, config)
       : querySummaries(db, project, config);
 
-    // Agent Recall: Query persona and active task
+    // Agent Recall: Query persona, active task, and bootstrap status
     let persona: MergedPersona | null = null;
     let activeTask: ActiveTaskRow | null = null;
+    let bootstrapStatus: BootstrapStateRow | null = null;
     try {
       const personaService = new PersonaService(db.db);
       persona = personaService.getMergedPersona(project);
       activeTask = personaService.getActiveTask(project);
+      bootstrapStatus = personaService.getBootstrapStatus('__global__');
     } catch (e) {
       // Graceful degradation: persona/recovery tables may not exist yet
       logger.debug('CONTEXT', 'Persona query skipped (tables may not exist yet)', {}, e as Error);
@@ -198,7 +216,7 @@ export async function generateContext(
 
     // Handle empty state (but still show persona if it exists)
     if (observations.length === 0 && summaries.length === 0 && !persona?.agent_soul?.name) {
-      return renderEmptyState(project, useColors);
+      return renderEmptyState(project, useColors, bootstrapStatus);
     }
 
     // Build and return context
