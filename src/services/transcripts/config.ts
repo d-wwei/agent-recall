@@ -2,9 +2,10 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import type { TranscriptSchema, TranscriptWatchConfig } from './types.js';
+import { DATA_DIR } from '../../shared/paths.js';
 
-export const DEFAULT_CONFIG_PATH = join(homedir(), '.claude-mem', 'transcript-watch.json');
-export const DEFAULT_STATE_PATH = join(homedir(), '.claude-mem', 'transcript-watch-state.json');
+export const DEFAULT_CONFIG_PATH = join(DATA_DIR, 'transcript-watch.json');
+export const DEFAULT_STATE_PATH = join(DATA_DIR, 'transcript-watch-state.json');
 
 const CODEX_SAMPLE_SCHEMA: TranscriptSchema = {
   name: 'codex',

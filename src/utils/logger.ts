@@ -24,9 +24,9 @@ interface LogContext {
   [key: string]: any;
 }
 
-// NOTE: This default must match DEFAULT_DATA_DIR in src/shared/SettingsDefaultsManager.ts
-// Inlined here to avoid circular dependency with SettingsDefaultsManager
-const DEFAULT_DATA_DIR = join(homedir(), '.claude-mem');
+// NOTE: Inlined here to avoid circular dependency with paths.ts → logger.ts
+// Must match the default DATA_DIR in src/shared/paths.ts
+const DEFAULT_DATA_DIR = join(homedir(), '.agent-recall');
 
 class Logger {
   private level: LogLevel | null = null;

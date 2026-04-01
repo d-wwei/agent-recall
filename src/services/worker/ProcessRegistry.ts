@@ -222,8 +222,14 @@ export async function ensureProcessExit(tracked: TrackedProcess, timeoutMs: numb
  * Criteria for cleanup:
  * - Process name is "claude"
  * - Parent PID is the worker-service daemon (this process)
+ * - Process is NOT tracked in the process registry (registry-managed processes
+ *   are handled by the registry-based reaper in reapOrphanedProcesses)
  * - Process has 0% CPU (idle)
- * - Process has been running for more than 2 minutes
+ * - Process has been running for more than 5 minutes
+ *
+ * IMPORTANT: SDK subprocesses legitimately show 0% CPU while waiting for
+ * API responses via stdin. We must not kill processes that the SDK is
+ * actively communicating with. The registry check ensures this.
  */
 async function killIdleDaemonChildren(): Promise<number> {
   if (process.platform === 'win32') {
@@ -233,6 +239,13 @@ async function killIdleDaemonChildren(): Promise<number> {
 
   const daemonPid = process.pid;
   let killed = 0;
+
+  // Build set of PIDs tracked in the process registry — these are managed
+  // by the registry-based reaper and must NOT be killed here.
+  const registeredPids = new Set<number>();
+  for (const record of getSupervisor().getRegistry().getAll().filter(e => e.type === 'sdk')) {
+    registeredPids.add(record.pid);
+  }
 
   try {
     const { stdout } = await execAsync(
@@ -252,6 +265,9 @@ async function killIdleDaemonChildren(): Promise<number> {
 
       // Skip if not a child of this daemon
       if (ppid !== daemonPid) continue;
+
+      // Skip if tracked in the process registry (the registry-based reaper handles these)
+      if (registeredPids.has(pid)) continue;
 
       // Skip if actively using CPU
       if (cpu > 0) continue;
@@ -274,8 +290,8 @@ async function killIdleDaemonChildren(): Promise<number> {
         minutes = parseInt(minMatch[1], 10);
       }
 
-      // Kill if idle for more than 1 minute
-      if (minutes >= 1) {
+      // Kill if idle for more than 5 minutes (unregistered orphans only)
+      if (minutes >= 5) {
         logger.info('PROCESS', `Killing idle daemon child PID ${pid} (idle ${minutes}m)`, { pid, minutes });
         try {
           process.kill(pid, 'SIGKILL');
@@ -386,7 +402,9 @@ export function createPidCapturingSpawn(sessionDbId: number) {
 
     // On Windows, use cmd.exe wrapper for .cmd files to properly handle paths with spaces
     const useCmdWrapper = process.platform === 'win32' && spawnOptions.command.endsWith('.cmd');
-    const env = sanitizeEnv(spawnOptions.env ?? process.env);
+    // Don't re-sanitize: the env passed by SDKAgent is already sanitized with auth vars
+    // re-injected. Running sanitizeEnv again would strip CLAUDE_CODE_OAUTH_TOKEN.
+    const env = spawnOptions.env ?? sanitizeEnv(process.env);
 
     const child = useCmdWrapper
       ? spawn('cmd.exe', ['/d', '/c', spawnOptions.command, ...spawnOptions.args], {

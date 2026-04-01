@@ -8,13 +8,11 @@
 
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import path from 'path';
-import os from 'os';
 import { logger } from './logger.js';
-import { formatDate, groupByDate } from '../shared/timeline-formatting.js';
+import { groupByDate } from '../shared/timeline-formatting.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
 import { workerHttpRequest } from '../shared/worker-utils.js';
-
-const SETTINGS_PATH = path.join(os.homedir(), '.claude-mem', 'settings.json');
+import { USER_SETTINGS_PATH } from '../shared/paths.js';
 
 /**
  * Check for consecutive duplicate path segments like frontend/frontend/ or src/src/.
@@ -330,7 +328,7 @@ export async function updateFolderClaudeMdFiles(
   projectRoot?: string
 ): Promise<void> {
   // Load settings to get configurable observation limit and exclude list
-  const settings = SettingsDefaultsManager.loadFromFile(SETTINGS_PATH);
+  const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
   const limit = parseInt(settings.CLAUDE_MEM_CONTEXT_OBSERVATIONS, 10) || 50;
 
   // Parse exclude paths from settings

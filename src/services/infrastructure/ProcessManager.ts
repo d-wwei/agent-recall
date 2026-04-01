@@ -25,7 +25,7 @@ const execAsync = promisify(exec);
 const PID_FILE = path.join(DATA_DIR, 'worker.pid');
 
 // Orphaned process cleanup patterns and thresholds
-// These are claude-mem processes that can accumulate if not properly terminated
+// These are agent-recall processes that can accumulate if not properly terminated
 const ORPHAN_PROCESS_PATTERNS = [
   'mcp-server.cjs',    // Main MCP server process
   'worker-service.cjs', // Background worker daemon
@@ -302,7 +302,7 @@ export function parseElapsedTime(etime: string): number {
 }
 
 /**
- * Clean up orphaned claude-mem processes from previous worker sessions
+ * Clean up orphaned agent-recall processes from previous worker sessions
  *
  * Targets mcp-server.cjs, worker-service.cjs, and chroma-mcp processes
  * that survived a previous daemon crash. Only kills processes older than
@@ -328,7 +328,7 @@ export async function cleanupOrphanedProcesses(): Promise<void> {
       const { stdout } = await execAsync(cmd, { timeout: HOOK_TIMEOUTS.POWERSHELL_COMMAND, windowsHide: true });
 
       if (!stdout.trim() || stdout.trim() === 'null') {
-        logger.debug('SYSTEM', 'No orphaned claude-mem processes found (Windows)');
+        logger.debug('SYSTEM', 'No orphaned agent-recall processes found (Windows)');
         return;
       }
 
@@ -361,7 +361,7 @@ export async function cleanupOrphanedProcesses(): Promise<void> {
       );
 
       if (!stdout.trim()) {
-        logger.debug('SYSTEM', 'No orphaned claude-mem processes found (Unix)');
+        logger.debug('SYSTEM', 'No orphaned agent-recall processes found (Unix)');
         return;
       }
 
@@ -394,7 +394,7 @@ export async function cleanupOrphanedProcesses(): Promise<void> {
     return;
   }
 
-  logger.info('SYSTEM', 'Cleaning up orphaned claude-mem processes', {
+  logger.info('SYSTEM', 'Cleaning up orphaned agent-recall processes', {
     platform: isWindows ? 'Windows' : 'Unix',
     count: pidsToKill.length,
     pids: pidsToKill,
@@ -438,7 +438,7 @@ const AGGRESSIVE_CLEANUP_PATTERNS = ['worker-service.cjs', 'chroma-mcp'];
 const AGE_GATED_CLEANUP_PATTERNS = ['mcp-server.cjs'];
 
 /**
- * Aggressive startup cleanup for orphaned claude-mem processes.
+ * Aggressive startup cleanup for orphaned agent-recall processes.
  *
  * Unlike cleanupOrphanedProcesses() which age-gates everything at 30 minutes,
  * this function kills worker-service.cjs and chroma-mcp processes immediately
