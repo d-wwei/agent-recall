@@ -100,6 +100,19 @@ function buildContextOutput(
     output.push(...renderActiveTask(activeTask, useColors));
   }
 
+  // Agent Recall: Show last session's next steps prominently (if no active task)
+  // This helps the user immediately see what they were doing last time
+  if (!activeTask && summaries.length > 0 && summaries[0].next_steps) {
+    const nextSteps = summaries[0].next_steps.trim();
+    if (nextSteps) {
+      if (useColors) {
+        output.push(`\x1b[33m◆ Last session's next steps:\x1b[0m ${nextSteps}`, '');
+      } else {
+        output.push(`**Last session's next steps:** ${nextSteps}`, '');
+      }
+    }
+  }
+
   // Calculate token economics
   const economics = calculateTokenEconomics(observations);
 
