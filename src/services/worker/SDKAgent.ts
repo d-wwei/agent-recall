@@ -155,6 +155,12 @@ export class SDKAgent {
       }
     });
 
+    // Rate limit tracking — shared across the message loop
+    let consecutiveRateLimits = 0;
+    const RATE_LIMIT_RETRY_DELAY_MS = 30_000; // 30 seconds between retries
+    const MAX_CONSECUTIVE_RATE_LIMITS = 3;
+    const rateLimitPauseSeconds = parseInt(settings.CLAUDE_MEM_RATE_LIMIT_PAUSE_SECONDS, 10) || 300;
+
     // Process SDK messages — cleanup in finally ensures subprocess termination
     // even if the loop throws (e.g., context overflow, invalid API key)
     try {
@@ -268,6 +274,52 @@ export class SDKAgent {
             throw new Error('Invalid API key: check your API key configuration in ~/.agent-recall/settings.json or ~/.agent-recall/.env');
           }
 
+          // Rate limit detection — SDK subprocess shares rate limits with user's CLI session.
+          // When the user is actively working, the SDK agent can hit rate limits.
+          // Detect rate limit patterns and apply progressive backoff.
+          const isRateLimited = typeof textContent === 'string' && (
+            textContent.includes('rate_limit') ||
+            textContent.includes('rate limit') ||
+            textContent.includes('429') ||
+            textContent.includes('overloaded') ||
+            textContent.includes('api_retry') ||
+            textContent.includes('Too many requests') ||
+            textContent.includes('Request too large')
+          );
+
+          if (isRateLimited) {
+            consecutiveRateLimits++;
+            logger.warn('SDK', `Rate limit hit (${consecutiveRateLimits}/${MAX_CONSECUTIVE_RATE_LIMITS})`, {
+              sessionId: session.sessionDbId,
+              consecutiveRateLimits,
+              responsePreview: textContent.substring(0, 200)
+            });
+
+            if (consecutiveRateLimits >= MAX_CONSECUTIVE_RATE_LIMITS) {
+              // Extended pause after repeated rate limits
+              logger.warn('SDK', `Rate limit threshold exceeded — pausing agent for ${rateLimitPauseSeconds}s`, {
+                sessionId: session.sessionDbId,
+                pauseSeconds: rateLimitPauseSeconds,
+                consecutiveRateLimits,
+                settingKey: 'CLAUDE_MEM_RATE_LIMIT_PAUSE_SECONDS'
+              });
+              await new Promise(resolve => setTimeout(resolve, rateLimitPauseSeconds * 1000));
+              consecutiveRateLimits = 0; // Reset after extended pause
+            } else {
+              // Short delay before retrying
+              logger.info('SDK', `Rate limit backoff — delaying ${RATE_LIMIT_RETRY_DELAY_MS / 1000}s before next request`, {
+                sessionId: session.sessionDbId,
+                delayMs: RATE_LIMIT_RETRY_DELAY_MS
+              });
+              await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_RETRY_DELAY_MS));
+            }
+            // Skip normal response processing for rate limit responses
+            continue;
+          }
+
+          // Successful non-rate-limit response — reset counter
+          consecutiveRateLimits = 0;
+
           // Parse and process response using shared ResponseProcessor
           await processAgentResponse(
             textContent,
@@ -285,6 +337,27 @@ export class SDKAgent {
         // Log result messages
         if (message.type === 'result' && message.subtype === 'success') {
           // Usage telemetry is captured at SDK level
+        }
+
+        // Detect rate limits in error results (SDK may surface them as result errors)
+        if (message.type === 'result' && message.subtype === 'error') {
+          const errorText = typeof message.error === 'string' ? message.error
+            : (message.error?.message || JSON.stringify(message.error) || '');
+          const isRateLimitError = (
+            errorText.includes('rate_limit') ||
+            errorText.includes('rate limit') ||
+            errorText.includes('429') ||
+            errorText.includes('overloaded') ||
+            errorText.includes('api_retry') ||
+            errorText.includes('Too many requests')
+          );
+          if (isRateLimitError) {
+            consecutiveRateLimits++;
+            logger.warn('SDK', `Rate limit in result error (${consecutiveRateLimits}/${MAX_CONSECUTIVE_RATE_LIMITS})`, {
+              sessionId: session.sessionDbId,
+              error: errorText.substring(0, 200)
+            });
+          }
         }
       }
     } finally {

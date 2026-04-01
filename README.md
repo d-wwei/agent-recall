@@ -127,6 +127,32 @@ Settings are stored in `~/.agent-recall/settings.json` (auto-created on first ru
 
 Environment variables (`CLAUDE_MEM_*`) are fully backward-compatible. New `AGENT_RECALL_*` variants take priority when both are set.
 
+## Known Limitations
+
+### Alpha Status
+This is v1.0.0-alpha.2. The core memory pipeline works but some features are still maturing.
+
+### Rate Limits
+The SDK Agent shares API rate limits with your main Claude Code session. Under heavy usage, observation compression may be delayed. Using `claude-haiku-4-5-20251001` as the worker model (default) minimizes this impact.
+
+### Chroma Vector Search
+Semantic search via ChromaDB is disabled by default. Enable it by setting `CLAUDE_MEM_CHROMA_ENABLED=true` in `~/.agent-recall/settings.json`. Requires a local Chroma instance on port 8000. When disabled, search falls back to SQLite FTS5 (keyword-based).
+
+### Cursor Integration
+Cursor support works via auto-detection when sharing Claude Code's hooks configuration. The standalone `cursor-hooks/` setup requires manual configuration — see `cursor-hooks/STANDALONE-SETUP.md`.
+
+### Observation Quality
+The AI agent decides which tool calls are "worth recording." Simple operations (echo, ls, status checks) are intentionally skipped. For complex development work (editing files, running tests, debugging), observations are captured reliably.
+
+### Platform Support
+| Platform | Status |
+|----------|--------|
+| Claude Code | Fully tested |
+| Cursor | Works via auto-detect, standalone setup is manual |
+| Codex CLI | Hooks configured, not yet validated end-to-end |
+| Gemini CLI | Hooks configured, not yet validated end-to-end |
+| OpenCode | Plugin exists, not yet validated end-to-end |
+
 ## Lineage
 
 Agent Recall is a fork of [claude-mem](https://github.com/thedotmack/claude-mem) v10.6.2 by Alex Newman ([@thedotmack](https://github.com/thedotmack)), incorporating design patterns from [claude-recall](https://github.com/d-wwei/claude-recall).

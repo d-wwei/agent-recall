@@ -54,6 +54,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: string;
   // Process Management
   CLAUDE_MEM_MAX_CONCURRENT_AGENTS: string;  // Max concurrent Claude SDK agent subprocesses (default: 2)
+  CLAUDE_MEM_RATE_LIMIT_PAUSE_SECONDS: string;  // Pause duration after repeated SDK agent rate limits (default: 300)
   // Exclusion Settings
   CLAUDE_MEM_EXCLUDED_PROJECTS: string;  // Comma-separated glob patterns for excluded project paths
   CLAUDE_MEM_FOLDER_MD_EXCLUDE: string;  // JSON array of folder paths to exclude from CLAUDE.md generation
@@ -113,11 +114,12 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: 'false',
     // Process Management
     CLAUDE_MEM_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
+    CLAUDE_MEM_RATE_LIMIT_PAUSE_SECONDS: '300',  // Pause for 5 minutes after 3 consecutive rate limits
     // Exclusion Settings
     CLAUDE_MEM_EXCLUDED_PROJECTS: '',  // Comma-separated glob patterns for excluded project paths
     CLAUDE_MEM_FOLDER_MD_EXCLUDE: '[]',  // JSON array of folder paths to exclude from CLAUDE.md generation
     // Chroma Vector Database Configuration
-    CLAUDE_MEM_CHROMA_ENABLED: 'true',         // Set to 'false' to disable Chroma and use SQLite-only search
+    CLAUDE_MEM_CHROMA_ENABLED: 'false',        // Set to 'true' to enable Chroma vector search (requires uv/uvx)
     CLAUDE_MEM_CHROMA_MODE: 'local',           // 'local' uses persistent chroma-mcp via uvx, 'remote' connects to existing server
     CLAUDE_MEM_CHROMA_HOST: '127.0.0.1',
     CLAUDE_MEM_CHROMA_PORT: '8000',

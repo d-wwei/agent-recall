@@ -68,18 +68,20 @@ export class MemoryRoutes extends BaseRouteHandler {
       title: observation.title
     });
 
-    // 4. Sync to ChromaDB (async, fire-and-forget)
-    chromaSync.syncObservation(
-      result.id,
-      memorySessionId,
-      targetProject,
-      observation,
-      0,
-      result.createdAtEpoch,
-      0
-    ).catch(err => {
-      logger.error('CHROMA', 'ChromaDB sync failed', { id: result.id }, err as Error);
-    });
+    // 4. Sync to ChromaDB (async, fire-and-forget, skip if Chroma disabled)
+    if (chromaSync) {
+      chromaSync.syncObservation(
+        result.id,
+        memorySessionId,
+        targetProject,
+        observation,
+        0,
+        result.createdAtEpoch,
+        0
+      ).catch(err => {
+        logger.error('CHROMA', 'ChromaDB sync failed', { id: result.id }, err as Error);
+      });
+    }
 
     // 5. Return success
     res.json({

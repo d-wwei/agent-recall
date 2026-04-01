@@ -35,6 +35,10 @@ import type { TimelineData } from './search/index.js';
 export class SearchManager {
   private orchestrator: SearchOrchestrator;
   private timelineBuilder: TimelineBuilder;
+  /** Set to true after the first Chroma connection failure to avoid log spam */
+  private chromaFallbackWarned = false;
+  /** Tracks whether Chroma is known to be unreachable (set on first connection failure) */
+  private chromaIsDown = false;
 
   constructor(
     private sessionSearch: SessionSearch,
@@ -53,7 +57,11 @@ export class SearchManager {
   }
 
   /**
-   * Query Chroma vector database via ChromaSync
+   * Query Chroma vector database via ChromaSync.
+   * Gracefully returns empty results when Chroma is unavailable (not running,
+   * connection refused, etc.) so callers can fall back to FTS5/SQLite search.
+   * Logs a warning once per session to avoid log spam.
+   *
    * @deprecated Use orchestrator.search() instead
    */
   private async queryChroma(
@@ -64,7 +72,26 @@ export class SearchManager {
     if (!this.chromaSync) {
       return { ids: [], distances: [], metadatas: [] };
     }
-    return await this.chromaSync.queryChroma(query, limit, whereFilter);
+    try {
+      const result = await this.chromaSync.queryChroma(query, limit, whereFilter);
+      // If we previously marked Chroma as down but it now works, clear the flag
+      if (this.chromaIsDown) {
+        this.chromaIsDown = false;
+        logger.info('SEARCH', 'Chroma connection restored');
+      }
+      return result;
+    } catch (error) {
+      this.chromaIsDown = true;
+      if (!this.chromaFallbackWarned) {
+        this.chromaFallbackWarned = true;
+        logger.warn('SEARCH', 'Chroma unavailable, falling back to SQLite/FTS5 search. '
+          + 'Set CLAUDE_MEM_CHROMA_ENABLED=false to silence this warning, '
+          + 'or install uv (https://docs.astral.sh/uv/) and restart the worker to enable vector search.', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      return { ids: [], distances: [], metadatas: [] };
+    }
   }
 
   /**
@@ -130,7 +157,6 @@ export class SearchManager {
     let observations: ObservationSearchResult[] = [];
     let sessions: SessionSummarySearchResult[] = [];
     let prompts: UserPromptSearchResult[] = [];
-    let chromaFailed = false;
 
     // Determine which types to query based on type filter
     const searchObservations = !type || type === 'observations';
@@ -152,9 +178,8 @@ export class SearchManager {
         prompts = this.sessionSearch.searchUserPrompts(undefined, options);
       }
     }
-    // PATH 2: CHROMA SEMANTIC SEARCH (query text + Chroma available)
-    else if (this.chromaSync) {
-      let chromaSucceeded = false;
+    // PATH 2: CHROMA SEMANTIC SEARCH (query text + Chroma available and reachable)
+    else if (this.chromaSync && !this.chromaIsDown) {
       logger.debug('SEARCH', 'Using ChromaDB semantic search', { typeFilter: type || 'all' });
 
       // Build Chroma where filter for doc_type and project
@@ -179,8 +204,8 @@ export class SearchManager {
 
       // Step 1: Chroma semantic search with optional type + project filter
       const chromaResults = await this.queryChroma(query, 100, whereFilter);
-      chromaSucceeded = true; // Chroma didn't throw error
-      logger.debug('SEARCH', 'ChromaDB returned semantic matches', { matchCount: chromaResults.ids.length });
+      const chromaActuallyWorked = !this.chromaIsDown;
+      logger.debug('SEARCH', 'ChromaDB returned semantic matches', { matchCount: chromaResults.ids.length, chromaWorking: chromaActuallyWorked });
 
       if (chromaResults.ids.length > 0) {
         // Step 2: Filter by date range
@@ -247,19 +272,38 @@ export class SearchManager {
         }
 
         logger.debug('SEARCH', 'Hydrated results from SQLite', { observations: observations.length, sessions: sessions.length, prompts: prompts.length });
-      } else {
-        // Chroma returned 0 results - this is the correct answer, don't fall back to FTS5
+      } else if (chromaActuallyWorked) {
+        // Chroma returned 0 results and was genuinely working - this is the correct answer
         logger.debug('SEARCH', 'ChromaDB found no matches (final result, no FTS5 fallback)', {});
+      } else {
+        // Chroma is down (queryChroma returned empty due to connection failure)
+        // Fall back to FTS5 search
+        logger.debug('SEARCH', 'Chroma unavailable, falling back to FTS5 search', {});
+        const obsOptions = { ...options, type: obs_type, concepts, files };
+        if (searchObservations) {
+          observations = this.sessionSearch.searchObservations(query, obsOptions);
+        }
+        if (searchSessions) {
+          sessions = this.sessionSearch.searchSessions(query, options);
+        }
+        if (searchPrompts) {
+          prompts = this.sessionSearch.searchUserPrompts(query, options);
+        }
       }
     }
-    // ChromaDB not initialized - mark as failed to show proper error message
+    // ChromaDB not available (disabled or not initialized) - fall back to FTS5 search
     else if (query) {
-      chromaFailed = true;
-      logger.debug('SEARCH', 'ChromaDB not initialized - semantic search unavailable', {});
-      logger.debug('SEARCH', 'Install UVX/Python to enable vector search', { url: 'https://docs.astral.sh/uv/getting-started/installation/' });
-      observations = [];
-      sessions = [];
-      prompts = [];
+      logger.debug('SEARCH', 'ChromaDB not available, using FTS5 search', {});
+      const obsOptions = { ...options, type: obs_type, concepts, files };
+      if (searchObservations) {
+        observations = this.sessionSearch.searchObservations(query, obsOptions);
+      }
+      if (searchSessions) {
+        sessions = this.sessionSearch.searchSessions(query, options);
+      }
+      if (searchPrompts) {
+        prompts = this.sessionSearch.searchUserPrompts(query, options);
+      }
     }
 
     const totalResults = observations.length + sessions.length + prompts.length;
@@ -276,14 +320,6 @@ export class SearchManager {
     }
 
     if (totalResults === 0) {
-      if (chromaFailed) {
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Vector search failed - semantic search unavailable.\n\nTo enable semantic search:\n1. Install uv: https://docs.astral.sh/uv/getting-started/installation/\n2. Restart the worker: npm run worker:restart\n\nNote: You can still use filter-only searches (date ranges, types, files) without a query term.`
-          }]
-        };
-      }
       return {
         content: [{
           type: 'text' as const,
@@ -892,7 +928,7 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Vector-first search via ChromaDB
-    if (this.chromaSync) {
+    if (this.chromaSync && !this.chromaIsDown) {
       logger.debug('SEARCH', 'Using hybrid semantic search (Chroma + SQLite)', {});
 
       // Step 1: Chroma semantic search (top 100)
@@ -916,6 +952,11 @@ export class SearchManager {
           logger.debug('SEARCH', 'Hydrated observations from SQLite', { count: results.length });
         }
       }
+    }
+
+    // Fall back to FTS5 if Chroma unavailable or returned no results
+    if (results.length === 0 && query) {
+      results = this.sessionSearch.searchObservations(query, options);
     }
 
     if (results.length === 0) {
@@ -961,7 +1002,7 @@ export class SearchManager {
     }
 
     // Vector-first search via ChromaDB
-    if (this.chromaSync) {
+    if (this.chromaSync && !this.chromaIsDown) {
       logger.debug('SEARCH', 'Using hybrid semantic search for sessions', {});
 
       // Step 1: Chroma semantic search (top 100)
@@ -985,6 +1026,11 @@ export class SearchManager {
           logger.debug('SEARCH', 'Hydrated sessions from SQLite', { count: results.length });
         }
       }
+    }
+
+    // Fall back to FTS5 if Chroma unavailable or returned no results
+    if (results.length === 0 && query) {
+      results = this.sessionSearch.searchSessions(query, options);
     }
 
     if (results.length === 0) {
@@ -1018,7 +1064,7 @@ export class SearchManager {
     let results: UserPromptSearchResult[] = [];
 
     // Vector-first search via ChromaDB
-    if (this.chromaSync) {
+    if (this.chromaSync && !this.chromaIsDown) {
       logger.debug('SEARCH', 'Using hybrid semantic search for user prompts', {});
 
       // Step 1: Chroma semantic search (top 100)
@@ -1042,6 +1088,11 @@ export class SearchManager {
           logger.debug('SEARCH', 'Hydrated user prompts from SQLite', { count: results.length });
         }
       }
+    }
+
+    // Fall back to FTS5 if Chroma unavailable or returned no results
+    if (results.length === 0 && query) {
+      results = this.sessionSearch.searchUserPrompts(query, options);
     }
 
     if (results.length === 0) {
