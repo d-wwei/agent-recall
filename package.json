@@ -27,19 +27,21 @@
   },
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./sdk": {
-      "types": "./dist/sdk/index.d.ts",
-      "import": "./dist/sdk/index.js"
-    },
     "./modes/*": "./plugin/modes/*"
   },
   "files": [
-    "dist",
-    "plugin"
+    "plugin/hooks",
+    "plugin/modes",
+    "plugin/scripts",
+    "plugin/skills",
+    "plugin/ui",
+    "plugin/CLAUDE.md",
+    "plugin/.claude-plugin",
+    "plugin/.mcp.json",
+    "plugin/.cli-installed",
+    "plugin/.install-version",
+    "plugin/package.json",
+    "!plugin/scripts/claude-mem"
   ],
   "engines": {
     "node": ">=18.0.0",

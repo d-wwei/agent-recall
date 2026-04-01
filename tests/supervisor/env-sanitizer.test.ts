@@ -14,7 +14,7 @@ describe('sanitizeEnv', () => {
     expect(result.PATH).toBe('/usr/bin');
   });
 
-  it('strips variables with CLAUDE_CODE_ prefix', () => {
+  it('strips variables with CLAUDE_CODE_ prefix (except allowlisted)', () => {
     const result = sanitizeEnv({
       CLAUDE_CODE_BAR: 'baz',
       CLAUDE_CODE_OAUTH_TOKEN: 'token',
@@ -22,11 +22,12 @@ describe('sanitizeEnv', () => {
     });
 
     expect(result.CLAUDE_CODE_BAR).toBeUndefined();
-    expect(result.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    // CLAUDE_CODE_OAUTH_TOKEN is allowlisted for SDK auth
+    expect(result.CLAUDE_CODE_OAUTH_TOKEN).toBe('token');
     expect(result.HOME).toBe('/home/user');
   });
 
-  it('strips exact-match variables (CLAUDECODE, CLAUDE_CODE_SESSION, CLAUDE_CODE_ENTRYPOINT, MCP_SESSION_ID)', () => {
+  it('strips exact-match variables (CLAUDECODE, CLAUDE_CODE_SESSION, MCP_SESSION_ID) but preserves allowlisted CLAUDE_CODE_ENTRYPOINT', () => {
     const result = sanitizeEnv({
       CLAUDECODE: '1',
       CLAUDE_CODE_SESSION: 'session-123',
@@ -37,7 +38,8 @@ describe('sanitizeEnv', () => {
 
     expect(result.CLAUDECODE).toBeUndefined();
     expect(result.CLAUDE_CODE_SESSION).toBeUndefined();
-    expect(result.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
+    // CLAUDE_CODE_ENTRYPOINT is allowlisted for SDK operation
+    expect(result.CLAUDE_CODE_ENTRYPOINT).toBe('hook');
     expect(result.MCP_SESSION_ID).toBeUndefined();
     expect(result.NODE_PATH).toBe('/usr/local/lib');
   });
@@ -115,9 +117,10 @@ describe('sanitizeEnv', () => {
     expect(result.CLAUDECODE).toBeUndefined();
     expect(result.CLAUDECODE_FOO).toBeUndefined();
     expect(result.CLAUDE_CODE_BAR).toBeUndefined();
-    expect(result.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    // Allowlisted vars are preserved
+    expect(result.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth-token');
+    expect(result.CLAUDE_CODE_ENTRYPOINT).toBe('entry');
     expect(result.CLAUDE_CODE_SESSION).toBeUndefined();
-    expect(result.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
     expect(result.MCP_SESSION_ID).toBeUndefined();
   });
 });

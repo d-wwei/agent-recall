@@ -1,0 +1,57 @@
+# Node / build artifacts
+node_modules/
+plugin/node_modules/
+dist/
+*.log
+.DS_Store
+
+# Source (built output in plugin/ is what ships)
+src/
+tests/
+scripts/
+tsconfig.json
+
+# Platform-specific binary (not for npm)
+plugin/scripts/claude-mem
+
+# CI / repo metadata
+.git/
+.github/
+.gitignore
+.markdownlint.json
+.translation-cache.json
+.plan/
+
+# Claude / assistant config
+.claude/
+.claude-plugin/
+.assistant/
+.mcp.json
+conductor.json
+transcript-watch.example.json
+
+# Supplementary projects (not part of the core package)
+openclaw/
+opencode-plugin/
+cursor-hooks/
+codex-hooks/
+gemini-hooks/
+installer/
+install/
+ragtime/
+design-references/
+
+# Documentation (README is included by default)
+docs/
+CHANGELOG.md
+
+# Dev / test files
+*.test.ts
+*.spec.ts
+*.tmp
+*.temp
+.env
+.env.local
+bun.lock
+private/
+datasets/
