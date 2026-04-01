@@ -15,4 +15,5 @@ export {
   querySummaries,
   buildTimeline,
   getPriorSessionMessages,
+  rankByDensity,
 } from './ObservationCompiler.js';

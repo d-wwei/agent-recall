@@ -2,6 +2,8 @@
  * ObservationCompiler - Query building and data retrieval for context
  *
  * Handles database queries for observations and summaries, plus transcript extraction.
+ * Includes information-density-weighted ranking to prioritize rich observations
+ * over sparse recent ones when selecting which observations fit the context window.
  */
 
 import path from 'path';
@@ -19,8 +21,14 @@ import type {
 } from './types.js';
 import { SUMMARY_LOOKAHEAD } from './types.js';
 
+/** Multiplier for over-fetching observations before density ranking */
+const DENSITY_FETCH_MULTIPLIER = 2;
+
 /**
- * Query observations from database with type and concept filtering
+ * Query observations from database with type and concept filtering.
+ *
+ * Over-fetches by DENSITY_FETCH_MULTIPLIER, then applies density+recency
+ * ranking to select the best observations for the context window.
  */
 export function queryObservations(
   db: SessionStore,
@@ -32,7 +40,9 @@ export function queryObservations(
   const conceptArray = Array.from(config.observationConcepts);
   const conceptPlaceholders = conceptArray.map(() => '?').join(',');
 
-  return db.db.prepare(`
+  const fetchLimit = config.totalObservationCount * DENSITY_FETCH_MULTIPLIER;
+
+  const candidates = db.db.prepare(`
     SELECT
       id, memory_session_id, type, title, subtitle, narrative,
       facts, concepts, files_read, files_modified, discovery_tokens,
@@ -46,7 +56,9 @@ export function queryObservations(
       )
     ORDER BY created_at_epoch DESC
     LIMIT ?
-  `).all(project, ...typeArray, ...conceptArray, config.totalObservationCount) as Observation[];
+  `).all(project, ...typeArray, ...conceptArray, fetchLimit) as Observation[];
+
+  return rankByDensity(candidates, config.totalObservationCount);
 }
 
 /**
@@ -71,6 +83,7 @@ export function querySummaries(
  *
  * Returns observations from all specified projects, interleaved chronologically.
  * Used when running in a worktree to show both parent repo and worktree observations.
+ * Over-fetches and applies density+recency ranking like queryObservations.
  */
 export function queryObservationsMulti(
   db: SessionStore,
@@ -85,7 +98,9 @@ export function queryObservationsMulti(
   // Build IN clause for projects
   const projectPlaceholders = projects.map(() => '?').join(',');
 
-  return db.db.prepare(`
+  const fetchLimit = config.totalObservationCount * DENSITY_FETCH_MULTIPLIER;
+
+  const candidates = db.db.prepare(`
     SELECT
       id, memory_session_id, type, title, subtitle, narrative,
       facts, concepts, files_read, files_modified, discovery_tokens,
@@ -99,7 +114,9 @@ export function queryObservationsMulti(
       )
     ORDER BY created_at_epoch DESC
     LIMIT ?
-  `).all(...projects, ...typeArray, ...conceptArray, config.totalObservationCount) as Observation[];
+  `).all(...projects, ...typeArray, ...conceptArray, fetchLimit) as Observation[];
+
+  return rankByDensity(candidates, config.totalObservationCount);
 }
 
 /**
@@ -123,6 +140,127 @@ export function querySummariesMulti(
     ORDER BY created_at_epoch DESC
     LIMIT ?
   `).all(...projects, config.sessionCount + SUMMARY_LOOKAHEAD) as SessionSummary[];
+}
+
+/**
+ * Calculate information-density score for an observation.
+ *
+ * Score = recency_weight + density_weight
+ *
+ * recency_weight: Linear decay from 1.0 to 0.0 over 168 hours (7 days).
+ *   Observations older than 7 days get recency_weight = 0.
+ *
+ * density_weight: Sum of bonuses for content richness (max ~0.8):
+ *   - has_title:         +0.1
+ *   - facts_count:       +0.1 per fact, capped at 0.3
+ *   - concepts_count:    +0.05 per concept, capped at 0.2
+ *   - has_narrative:     +0.1
+ *   - has_files_modified:+0.1
+ *
+ * A rich observation from yesterday (~0.86 + 0.8 = 1.66) outranks
+ * a sparse observation from 1 hour ago (~0.99 + 0.1 = 1.09).
+ */
+function scoreDensity(obs: Observation, nowEpoch: number): number {
+  // --- Recency weight ---
+  const ageHours = (nowEpoch - obs.created_at_epoch) / 3600;
+  const recencyWeight = Math.max(0, 1.0 - ageHours / 168);
+
+  // --- Density weight ---
+  let densityWeight = 0;
+
+  // Title bonus
+  if (obs.title && obs.title.trim().length > 0) {
+    densityWeight += 0.1;
+  }
+
+  // Facts bonus (JSON array string)
+  if (obs.facts) {
+    try {
+      const factsArray = JSON.parse(obs.facts);
+      if (Array.isArray(factsArray)) {
+        densityWeight += Math.min(factsArray.length * 0.1, 0.3);
+      }
+    } catch {
+      // Malformed JSON — treat as having 1 fact if non-empty
+      if (obs.facts.trim().length > 0) {
+        densityWeight += 0.1;
+      }
+    }
+  }
+
+  // Concepts bonus (JSON array string)
+  if (obs.concepts) {
+    try {
+      const conceptsArray = JSON.parse(obs.concepts);
+      if (Array.isArray(conceptsArray)) {
+        densityWeight += Math.min(conceptsArray.length * 0.05, 0.2);
+      }
+    } catch {
+      if (obs.concepts.trim().length > 0) {
+        densityWeight += 0.05;
+      }
+    }
+  }
+
+  // Narrative bonus
+  if (obs.narrative && obs.narrative.trim().length > 0) {
+    densityWeight += 0.1;
+  }
+
+  // Files modified bonus
+  if (obs.files_modified) {
+    try {
+      const filesArray = JSON.parse(obs.files_modified);
+      if (Array.isArray(filesArray) && filesArray.length > 0) {
+        densityWeight += 0.1;
+      }
+    } catch {
+      if (obs.files_modified.trim().length > 0) {
+        densityWeight += 0.1;
+      }
+    }
+  }
+
+  return recencyWeight + densityWeight;
+}
+
+/**
+ * Rank observations by information density + recency.
+ *
+ * Takes an over-fetched pool of observations (sorted by recency from DB),
+ * scores each by density + recency, selects the top `limit`, then re-sorts
+ * chronologically so the timeline reads in natural time order.
+ *
+ * @param candidates - Observations fetched from DB (more than needed)
+ * @param limit - How many to keep for the context window
+ * @returns Top-N observations re-sorted chronologically (oldest first for timeline)
+ */
+export function rankByDensity(candidates: Observation[], limit: number): Observation[] {
+  if (candidates.length <= limit) {
+    return candidates;
+  }
+
+  const nowEpoch = Math.floor(Date.now() / 1000);
+
+  // Score each observation
+  const scored = candidates.map(obs => ({
+    obs,
+    score: scoreDensity(obs, nowEpoch),
+  }));
+
+  // Sort by score descending — highest density+recency first
+  scored.sort((a, b) => b.score - a.score);
+
+  // Take the top N
+  const selected = scored.slice(0, limit).map(s => s.obs);
+
+  // Re-sort chronologically (by created_at_epoch ascending) for timeline display
+  // Note: the original query returns DESC; we preserve DESC here so downstream
+  // code (getFullObservationIds, getPriorSessionMessages) which expects most-recent-first
+  // still works correctly. buildTimeline() will re-sort ascending internally.
+  selected.sort((a, b) => b.created_at_epoch - a.created_at_epoch);
+
+  return selected;
 }
 
 /**
