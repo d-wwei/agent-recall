@@ -14,6 +14,7 @@ import {
 } from '../../types/database.js';
 import type { PendingMessageStore } from './PendingMessageStore.js';
 import { computeObservationContentHash, findDuplicateObservation } from './observations/store.js';
+import { MigrationRunner } from './migrations/runner.js';
 
 /**
  * Session data store for SDK sessions, observations, and summaries
@@ -36,7 +37,7 @@ export class SessionStore {
     // Initialize schema if needed (fresh database)
     this.initializeSchema();
 
-    // Run migrations
+    // Run legacy inline migrations (4-23)
     this.ensureWorkerPortColumn();
     this.ensurePromptTrackingColumns();
     this.removeSessionSummariesUniqueConstraint();
@@ -51,6 +52,10 @@ export class SessionStore {
     this.addOnUpdateCascadeToForeignKeys();
     this.addObservationContentHashColumn();
     this.addSessionCustomTitleColumn();
+
+    // Run Agent Recall migrations (24+) via MigrationRunner
+    const migrationRunner = new MigrationRunner(this.db);
+    migrationRunner.runAllMigrations();
   }
 
   /**

@@ -1,17 +1,19 @@
 {
-  "name": "claude-mem",
-  "version": "10.6.2",
-  "description": "Persistent memory system for Claude Code - seamlessly preserve context across sessions",
+  "name": "agent-recall",
+  "version": "1.0.0-alpha.1",
+  "description": "Persistent memory system for AI coding agents - knows who it is, who you are, and what you were doing",
   "author": {
-    "name": "Alex Newman"
+    "name": "Eli (forked from Alex Newman @thedotmack)"
   },
-  "repository": "https://github.com/thedotmack/claude-mem",
+  "repository": "https://github.com/d-wwei/agent-recall",
   "license": "AGPL-3.0",
   "keywords": [
     "memory",
     "context",
     "persistence",
     "hooks",
-    "mcp"
+    "mcp",
+    "persona",
+    "agent-identity"
   ]
 }

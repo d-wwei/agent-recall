@@ -7,10 +7,11 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
-const PLUGIN_SETTINGS_KEY = 'claude-mem@agent-recall';
+const PLUGIN_SETTINGS_KEY = 'agent-recall@agent-recall';
+const LEGACY_PLUGIN_SETTINGS_KEY = 'claude-mem@thedotmack';
 
 /**
- * Check if claude-mem is disabled in Claude Code's settings (#781).
+ * Check if Agent Recall is disabled in Claude Code's settings (#781).
  * Sync read + JSON parse for speed — called before any async work.
  * Returns true only if the plugin is explicitly disabled (enabledPlugins[key] === false).
  */
@@ -21,7 +22,8 @@ export function isPluginDisabledInClaudeSettings(): boolean {
     if (!existsSync(settingsPath)) return false;
     const raw = readFileSync(settingsPath, 'utf-8');
     const settings = JSON.parse(raw);
-    return settings?.enabledPlugins?.[PLUGIN_SETTINGS_KEY] === false;
+    return settings?.enabledPlugins?.[PLUGIN_SETTINGS_KEY] === false
+      || settings?.enabledPlugins?.[LEGACY_PLUGIN_SETTINGS_KEY] === false;
   } catch {
     // If settings can't be read/parsed, assume not disabled
     return false;

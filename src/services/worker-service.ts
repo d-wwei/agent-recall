@@ -326,17 +326,8 @@ export class WorkerService {
     this.server.registerRoutes(new LogsRoutes());
     this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'agent-recall'));
 
-    // Agent Recall: persona, bootstrap, recovery, archiving, promotion routes
-    try {
-      const db = this.dbManager.getSessionStore().db;
-      const personaService = new PersonaService(db);
-      const archiveService = new SessionArchiveService(db);
-      const promotionService = new PromotionService(db);
-      this.server.registerRoutes(new PersonaRoutes(personaService));
-      this.server.registerRoutes(new ArchiveRoutes(archiveService, promotionService));
-    } catch (e) {
-      logger.warn('WORKER', 'Agent Recall routes registration skipped (DB may not be ready)', {}, e as Error);
-    }
+    // Note: Agent Recall routes (persona, bootstrap, recovery, archives) are registered
+    // in initializeInBackground() after DB is initialized, not here in the constructor.
   }
 
   /**
@@ -430,6 +421,19 @@ export class WorkerService {
       this.searchRoutes = new SearchRoutes(searchManager);
       this.server.registerRoutes(this.searchRoutes);
       logger.info('WORKER', 'SearchManager initialized and search routes registered');
+
+      // Register Agent Recall routes now that DB is initialized
+      try {
+        const db = this.dbManager.getSessionStore().db;
+        const personaService = new PersonaService(db);
+        const archiveService = new SessionArchiveService(db);
+        const promotionService = new PromotionService(db);
+        this.server.registerRoutes(new PersonaRoutes(personaService));
+        this.server.registerRoutes(new ArchiveRoutes(archiveService, promotionService));
+        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives)');
+      } catch (e) {
+        logger.warn('WORKER', 'Agent Recall routes registration failed', {}, e as Error);
+      }
 
       // DB and search are ready — mark initialization complete so hooks can proceed.
       // MCP connection is tracked separately via mcpReady and is NOT required for

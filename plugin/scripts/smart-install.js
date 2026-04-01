@@ -22,7 +22,8 @@ function isPluginDisabledInClaudeSettings() {
     const settingsPath = join(configDir, 'settings.json');
     if (!existsSync(settingsPath)) return false;
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    return settings?.enabledPlugins?.['claude-mem@thedotmack'] === false;
+    return settings?.enabledPlugins?.['agent-recall@agent-recall'] === false
+      || settings?.enabledPlugins?.['claude-mem@thedotmack'] === false;
   } catch {
     return false;
   }
@@ -60,7 +61,7 @@ function resolveRoot() {
   }
 
   // Probe XDG path, then legacy
-  const marketplaceRel = join('plugins', 'marketplaces', 'thedotmack');
+  const marketplaceRel = join('plugins', 'marketplaces', 'agent-recall');
   const xdg = join(homedir(), '.config', 'claude', marketplaceRel);
   if (existsSync(join(xdg, 'package.json'))) return xdg;
 
