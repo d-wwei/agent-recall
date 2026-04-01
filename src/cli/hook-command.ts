@@ -65,6 +65,31 @@ export function isWorkerUnavailableError(error: unknown): boolean {
   return false;
 }
 
+/**
+ * Auto-detect the actual platform from stdin fields when the command-line
+ * platform argument doesn't match the real caller.
+ *
+ * This handles the common case where settings.json hooks use "claude-code"
+ * but are also triggered by Cursor (which shares the same settings file).
+ */
+function autoDetectPlatform(declaredPlatform: string, rawInput: unknown): string {
+  if (!rawInput || typeof rawInput !== 'object') return declaredPlatform;
+  const r = rawInput as Record<string, unknown>;
+
+  // Cursor: has cursor_version, or conversation_id without session_id
+  if (r.cursor_version || (r.conversation_id && !r.session_id)) {
+    return 'cursor';
+  }
+
+  // Gemini CLI: has hook_event_name matching gemini patterns, or GEMINI env vars
+  if (r.hook_event_name && typeof r.hook_event_name === 'string' &&
+      ['BeforeTool', 'AfterAgent', 'Notification'].includes(r.hook_event_name)) {
+    return 'gemini-cli';
+  }
+
+  return declaredPlatform;
+}
+
 export async function hookCommand(platform: string, event: string, options: HookCommandOptions = {}): Promise<number> {
   // Suppress stderr in hook context — Claude Code shows stderr as error UI (#1181)
   // Exit 1: stderr shown to user. Exit 2: stderr fed to Claude for processing.
@@ -73,12 +98,21 @@ export async function hookCommand(platform: string, event: string, options: Hook
   process.stderr.write = (() => true) as typeof process.stderr.write;
 
   try {
-    const adapter = getPlatformAdapter(platform);
+    let adapter = getPlatformAdapter(platform);
     const handler = getEventHandler(event);
 
     const rawInput = await readJsonFromStdin();
+
+    // Auto-detect platform from stdin when command-line says "claude-code"
+    // but stdin contains Cursor-specific fields (shared settings.json scenario)
+    const detectedPlatform = autoDetectPlatform(platform, rawInput);
+    if (detectedPlatform !== platform) {
+      logger.info('HOOK', `Platform auto-detected: ${platform} → ${detectedPlatform}`);
+      adapter = getPlatformAdapter(detectedPlatform);
+    }
+
     const input = adapter.normalizeInput(rawInput);
-    input.platform = platform;  // Inject platform for handler-level decisions
+    input.platform = detectedPlatform;  // Inject detected platform for handler-level decisions
     const result = await handler.execute(input);
     const output = adapter.formatOutput(result);
 

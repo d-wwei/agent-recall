@@ -17,9 +17,9 @@ export const cursorAdapter: PlatformAdapter = {
       sessionId: r.conversation_id || r.generation_id || r.id,
       cwd: r.workspace_roots?.[0] ?? r.cwd ?? process.cwd(),
       prompt: r.prompt ?? r.query ?? r.input ?? r.message,
-      toolName: isShellCommand ? 'Bash' : r.tool_name,
+      toolName: isShellCommand ? 'Bash' : (r.tool_name === 'Shell' ? 'Bash' : r.tool_name),
       toolInput: isShellCommand ? { command: r.command } : r.tool_input,
-      toolResponse: isShellCommand ? { output: r.output } : r.result_json,  // result_json not tool_response
+      toolResponse: isShellCommand ? { output: r.output } : (r.tool_output ?? r.result_json ?? r.tool_response),
       transcriptPath: undefined,  // Cursor doesn't provide transcript
       // Cursor-specific fields for file edits
       filePath: r.file_path,
