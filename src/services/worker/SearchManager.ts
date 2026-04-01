@@ -948,6 +948,18 @@ export class SearchManager {
     const { query, ...options } = normalized;
     let results: SessionSummarySearchResult[] = [];
 
+    // Fallback to SQLite when no query provided (Chroma requires non-empty query_texts)
+    if (!query) {
+      const limit = options.limit || 20;
+      results = this.sessionSearch.searchSessions(undefined, { ...options, limit });
+      if (results.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No sessions found' }] };
+      }
+      const header = `Found ${results.length} session(s)\n\n${this.formatter.formatTableHeader()}`;
+      const formattedResults = results.map((session, i) => this.formatter.formatSessionIndex(session, i));
+      return { content: [{ type: 'text' as const, text: header + '\n' + formattedResults.join('\n') }] };
+    }
+
     // Vector-first search via ChromaDB
     if (this.chromaSync) {
       logger.debug('SEARCH', 'Using hybrid semantic search for sessions', {});
