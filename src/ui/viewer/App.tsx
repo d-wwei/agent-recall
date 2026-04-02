@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Header } from './components/Header';
+import { Toolbar } from './components/Toolbar';
 import { Feed } from './components/Feed';
+import { SessionView } from './components/SessionView';
+import { CommandPalette } from './components/CommandPalette';
 import { ContextSettingsModal } from './components/ContextSettingsModal';
 import { LogsDrawer } from './components/LogsModal';
 import { useSSE } from './hooks/useSSE';
@@ -8,21 +11,25 @@ import { useSettings } from './hooks/useSettings';
 import { useStats } from './hooks/useStats';
 import { usePagination } from './hooks/usePagination';
 import { useTheme } from './hooks/useTheme';
+import { useCommandPalette } from './hooks/useCommandPalette';
 import { Observation, Summary, UserPrompt } from './types';
 import { mergeAndDeduplicateByProject } from './utils/data';
 
 export function App() {
   const [currentFilter, setCurrentFilter] = useState('');
-  const [contextPreviewOpen, setContextPreviewOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<'all' | 'observations' | 'summaries' | 'prompts'>('all');
+  const [viewMode, setViewMode] = useState<'timeline' | 'sessions'>('timeline');
   const [paginatedObservations, setPaginatedObservations] = useState<Observation[]>([]);
   const [paginatedSummaries, setPaginatedSummaries] = useState<Summary[]>([]);
   const [paginatedPrompts, setPaginatedPrompts] = useState<UserPrompt[]>([]);
 
   const { observations, summaries, prompts, projects, isProcessing, queueDepth, isConnected } = useSSE();
   const { settings, saveSettings, isSaving, saveStatus } = useSettings();
-  const { stats, refreshStats } = useStats();
-  const { preference, resolvedTheme, setThemePreference } = useTheme();
+  useStats(); // keep polling stats for SSE connection
+  const { preference, setThemePreference } = useTheme();
+  const { isOpen: searchOpen, open: openSearch, close: closeSearch, toggle: toggleSearch } = useCommandPalette();
   const pagination = usePagination(currentFilter);
 
   // Merge SSE live data with paginated data, filtering by project when active
@@ -47,9 +54,9 @@ export function App() {
     return mergeAndDeduplicateByProject(live, paginatedPrompts);
   }, [prompts, paginatedPrompts, currentFilter]);
 
-  // Toggle context preview modal
-  const toggleContextPreview = useCallback(() => {
-    setContextPreviewOpen(prev => !prev);
+  // Toggle settings modal
+  const toggleSettings = useCallback(() => {
+    setSettingsOpen(prev => !prev);
   }, []);
 
   // Toggle logs modal
@@ -67,13 +74,13 @@ export function App() {
       ]);
 
       if (newObservations.length > 0) {
-        setPaginatedObservations(prev => [...prev, ...newObservations]);
+        setPaginatedObservations(prev => [...prev, ...newObservations as Observation[]]);
       }
       if (newSummaries.length > 0) {
-        setPaginatedSummaries(prev => [...prev, ...newSummaries]);
+        setPaginatedSummaries(prev => [...prev, ...newSummaries as Summary[]]);
       }
       if (newPrompts.length > 0) {
-        setPaginatedPrompts(prev => [...prev, ...newPrompts]);
+        setPaginatedPrompts(prev => [...prev, ...newPrompts as UserPrompt[]]);
       }
     } catch (error) {
       console.error('Failed to load more data:', error);
@@ -100,21 +107,39 @@ export function App() {
         queueDepth={queueDepth}
         themePreference={preference}
         onThemeChange={setThemePreference}
-        onContextPreviewToggle={toggleContextPreview}
+        onSettingsToggle={toggleSettings}
+        onSearchToggle={toggleSearch}
       />
 
-      <Feed
+      <Toolbar
         observations={allObservations}
         summaries={allSummaries}
         prompts={allPrompts}
-        onLoadMore={handleLoadMore}
-        isLoading={pagination.observations.isLoading || pagination.summaries.isLoading || pagination.prompts.isLoading}
-        hasMore={pagination.observations.hasMore || pagination.summaries.hasMore || pagination.prompts.hasMore}
+        typeFilter={typeFilter}
+        onTypeFilterChange={setTypeFilter}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
       />
 
+      {viewMode === 'sessions' ? (
+        <SessionView projectFilter={currentFilter} />
+      ) : (
+        <Feed
+          observations={allObservations}
+          summaries={allSummaries}
+          prompts={allPrompts}
+          typeFilter={typeFilter}
+          onLoadMore={handleLoadMore}
+          isLoading={pagination.observations.isLoading || pagination.summaries.isLoading || pagination.prompts.isLoading}
+          hasMore={pagination.observations.hasMore || pagination.summaries.hasMore || pagination.prompts.hasMore}
+        />
+      )}
+
+      <CommandPalette isOpen={searchOpen} onClose={closeSearch} />
+
       <ContextSettingsModal
-        isOpen={contextPreviewOpen}
-        onClose={toggleContextPreview}
+        isOpen={settingsOpen}
+        onClose={toggleSettings}
         settings={settings}
         onSave={saveSettings}
         isSaving={isSaving}

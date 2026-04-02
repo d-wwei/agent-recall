@@ -10,19 +10,16 @@ export function PromptCard({ prompt }: PromptCardProps) {
   const date = formatDate(prompt.created_at_epoch);
 
   return (
-    <div className="card prompt-card">
-      <div className="card-header">
-        <div className="card-header-left">
-          <span className="card-type">Prompt</span>
-          <span className="card-project">{prompt.project}</span>
-        </div>
-      </div>
-      <div className="card-content">
-        {prompt.prompt_text}
-      </div>
+    <div className="card">
       <div className="card-meta">
-        <span className="meta-date">#{prompt.id} • {date}</span>
+        <span className="badge pmt">prompt</span>
+        <span className="dot-sep">&bull;</span>
+        <span className="card-project">{prompt.project}</span>
+        <span className="dot-sep">&bull;</span>
+        <span className="time">{date}</span>
       </div>
+      <div className="title">Prompt #{prompt.prompt_number || prompt.id}</div>
+      <div className="prompt-text">{prompt.prompt_text}</div>
     </div>
   );
 }
