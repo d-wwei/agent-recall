@@ -1,7 +1,7 @@
 /**
  * Settings Routes
  *
- * Handles settings management, MCP toggle, and branch switching.
+ * Handles settings management and MCP toggle.
  * Settings are stored in ~/.agent-recall/settings.json
  */
 
@@ -11,7 +11,6 @@ import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from '
 import { getPackageRoot, USER_SETTINGS_PATH } from '../../../../shared/paths.js';
 import { logger } from '../../../../utils/logger.js';
 import { SettingsManager } from '../../SettingsManager.js';
-import { getBranchInfo, switchBranch, pullUpdates } from '../../BranchManager.js';
 import { ModeManager } from '../../domain/ModeManager.js';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
@@ -32,11 +31,6 @@ export class SettingsRoutes extends BaseRouteHandler {
     // MCP toggle endpoints
     app.get('/api/mcp/status', this.handleGetMcpStatus.bind(this));
     app.post('/api/mcp/toggle', this.handleToggleMcp.bind(this));
-
-    // Branch switching endpoints
-    app.get('/api/branch/status', this.handleGetBranchStatus.bind(this));
-    app.post('/api/branch/switch', this.handleSwitchBranch.bind(this));
-    app.post('/api/branch/update', this.handleUpdateBranch.bind(this));
   }
 
   /**
@@ -161,70 +155,6 @@ export class SettingsRoutes extends BaseRouteHandler {
 
     this.toggleMcp(enabled);
     res.json({ success: true, enabled: this.isMcpEnabled() });
-  });
-
-  /**
-   * GET /api/branch/status - Get current branch information
-   */
-  private handleGetBranchStatus = this.wrapHandler((req: Request, res: Response): void => {
-    const info = getBranchInfo();
-    res.json(info);
-  });
-
-  /**
-   * POST /api/branch/switch - Switch to a different branch
-   * Body: { branch: "main" | "beta/7.0" }
-   */
-  private handleSwitchBranch = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
-    const { branch } = req.body;
-
-    if (!branch) {
-      res.status(400).json({ success: false, error: 'Missing branch parameter' });
-      return;
-    }
-
-    // Validate branch name
-    const allowedBranches = ['main', 'beta/7.0', 'feature/bun-executable'];
-    if (!allowedBranches.includes(branch)) {
-      res.status(400).json({
-        success: false,
-        error: `Invalid branch. Allowed: ${allowedBranches.join(', ')}`
-      });
-      return;
-    }
-
-    logger.info('WORKER', 'Branch switch requested', { branch });
-
-    const result = await switchBranch(branch);
-
-    if (result.success) {
-      // Schedule worker restart after response is sent
-      setTimeout(() => {
-        logger.info('WORKER', 'Restarting worker after branch switch');
-        process.exit(0); // PM2 will restart the worker
-      }, 1000);
-    }
-
-    res.json(result);
-  });
-
-  /**
-   * POST /api/branch/update - Pull latest updates for current branch
-   */
-  private handleUpdateBranch = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
-    logger.info('WORKER', 'Branch update requested');
-
-    const result = await pullUpdates();
-
-    if (result.success) {
-      // Schedule worker restart after response is sent
-      setTimeout(() => {
-        logger.info('WORKER', 'Restarting worker after branch update');
-        process.exit(0); // PM2 will restart the worker
-      }, 1000);
-    }
-
-    res.json(result);
   });
 
   /**

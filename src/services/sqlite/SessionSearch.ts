@@ -50,7 +50,11 @@ export class SessionSearch {
    * When unavailable, we skip FTS table creation — search falls back to
    * ChromaDB (vector) and LIKE queries (structured filters) which are unaffected.
    *
-   * TODO: Remove FTS5 infrastructure in future major version (v7.0.0)
+   * NOTE (2025-12): FTS5 tables are candidates for removal in a future major version.
+   * The v7.0.0 target was from the upstream claude-mem project; Agent Recall is at v1.x.
+   * Before removing: (1) ensure all users have migrated to ChromaDB-based search,
+   * (2) provide a migration that drops FTS5 tables and triggers cleanly,
+   * (3) bump the major version to signal the breaking change.
    */
   private ensureFTSTables(): void {
     // Check if FTS tables already exist

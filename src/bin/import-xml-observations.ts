@@ -10,7 +10,7 @@ import { homedir } from 'os';
 import { SessionStore } from '../services/sqlite/SessionStore.js';
 import { logger } from '../utils/logger.js';
 
-interface ObservationData {
+export interface ObservationData {
   type: string;
   title: string;
   subtitle: string;
@@ -21,7 +21,7 @@ interface ObservationData {
   files_modified: string[];
 }
 
-interface SummaryData {
+export interface SummaryData {
   request: string;
   investigated: string;
   learned: string;
@@ -93,7 +93,7 @@ function buildTimestampMap(): TimestampMapping {
 /**
  * Parse XML text content and extract tag value
  */
-function extractTag(xml: string, tagName: string): string {
+export function extractTag(xml: string, tagName: string): string {
   const regex = new RegExp(`<${tagName}>([\\s\\S]*?)</${tagName}>`, 'i');
   const match = xml.match(regex);
   return match ? match[1].trim() : '';
@@ -102,7 +102,7 @@ function extractTag(xml: string, tagName: string): string {
 /**
  * Parse XML array tags (facts, concepts, files, etc.)
  */
-function extractArrayTags(xml: string, containerTag: string, itemTag: string): string[] {
+export function extractArrayTags(xml: string, containerTag: string, itemTag: string): string[] {
   const containerRegex = new RegExp(`<${containerTag}>([\\s\\S]*?)</${containerTag}>`, 'i');
   const containerMatch = xml.match(containerRegex);
 
@@ -125,7 +125,7 @@ function extractArrayTags(xml: string, containerTag: string, itemTag: string): s
 /**
  * Parse an observation block from XML
  */
-function parseObservation(xml: string): ObservationData | null {
+export function parseObservation(xml: string): ObservationData | null {
   // Must be a complete observation block
   if (!xml.includes('<observation>') || !xml.includes('</observation>')) {
     return null;
@@ -158,7 +158,7 @@ function parseObservation(xml: string): ObservationData | null {
 /**
  * Parse a summary block from XML
  */
-function parseSummary(xml: string): SummaryData | null {
+export function parseSummary(xml: string): SummaryData | null {
   // Must be a complete summary block
   if (!xml.includes('<summary>') || !xml.includes('</summary>')) {
     return null;
@@ -190,7 +190,7 @@ function parseSummary(xml: string): SummaryData | null {
  * Extract timestamp from XML comment
  * Format: <!-- Block N | 2025-10-19 03:03:23 UTC -->
  */
-function extractTimestamp(commentLine: string): string | null {
+export function extractTimestamp(commentLine: string): string | null {
   const match = commentLine.match(/<!-- Block \d+ \| (.+?) -->/);
   if (match) {
     // Convert "2025-10-19 03:03:23 UTC" to ISO format
