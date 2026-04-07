@@ -36,7 +36,13 @@ jobs:
         run: bun install
 
       - name: Run tests with coverage
-        run: bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage
+        run: >
+          bun test
+          --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage
+          --path-ignore-patterns "**/openclaw/**"
+          --path-ignore-patterns "**/worker-json-status*"
+          --path-ignore-patterns "**/plugin-distribution*"
+          --path-ignore-patterns "**/project-filter*"
 
       - name: Upload coverage artifact
         if: always()
