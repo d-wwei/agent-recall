@@ -15,6 +15,8 @@ export interface ContextInput {
   projects?: string[];
   /** When true, return ALL observations with no limit */
   full?: boolean;
+  /** When true, session was launched from HOME — skip project-specific context */
+  globalMode?: boolean;
   [key: string]: any;
 }
 

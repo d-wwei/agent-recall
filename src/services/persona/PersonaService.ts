@@ -17,7 +17,9 @@ import type {
   WorkflowProfile,
   BootstrapStateRow,
   ActiveTaskRow,
-  TaskCheckpoint
+  TaskCheckpoint,
+  PersonaConflict,
+  ConflictResolution
 } from './PersonaTypes.js';
 
 export class PersonaService {
@@ -79,6 +81,92 @@ export class PersonaService {
     }
 
     return merged as unknown as MergedPersona;
+  }
+
+  // ==========================================
+  // Conflict Detection & Resolution
+  // ==========================================
+
+  /**
+   * Detect fields where global and project profiles have different non-empty values.
+   * Skips agent_soul since agent identity is expected to differ per project.
+   */
+  detectConflicts(project: string): PersonaConflict[] {
+    if (!project) return [];
+
+    const conflictTypes: ProfileType[] = ['user', 'style', 'workflow'];
+    const conflicts: PersonaConflict[] = [];
+
+    for (const profileType of conflictTypes) {
+      const globalProfile = this.getProfile('global', profileType);
+      const projectProfile = this.getProfile(project, profileType);
+
+      if (!globalProfile || !projectProfile) continue;
+
+      for (const field of Object.keys(projectProfile)) {
+        const globalValue = globalProfile[field];
+        const projectValue = projectProfile[field];
+
+        // Skip if either side is empty/null/undefined
+        if (globalValue === null || globalValue === undefined || globalValue === '') continue;
+        if (projectValue === null || projectValue === undefined || projectValue === '') continue;
+
+        // Skip if values are equal
+        if (JSON.stringify(globalValue) === JSON.stringify(projectValue)) continue;
+
+        conflicts.push({
+          profile_type: profileType,
+          field,
+          global_value: globalValue,
+          project_value: projectValue,
+        });
+      }
+    }
+
+    return conflicts;
+  }
+
+  /**
+   * Resolve a single persona conflict between global and project profiles.
+   *
+   * - keep_global: remove the field from the project profile so global takes effect
+   * - keep_project: update the global profile field to match the project value
+   * - custom: set both global and project to the provided custom_value
+   */
+  resolveConflict(
+    project: string,
+    profileType: ProfileType,
+    field: string,
+    resolution: ConflictResolution,
+    customValue?: any
+  ): void {
+    const globalProfile = this.getProfile('global', profileType) || {};
+    const projectProfile = this.getProfile(project, profileType) || {};
+
+    switch (resolution) {
+      case 'keep_global': {
+        // Delete the field from project profile
+        delete projectProfile[field];
+        this.setProfile(project, profileType, projectProfile);
+        break;
+      }
+      case 'keep_project': {
+        // Update global to match project value
+        globalProfile[field] = projectProfile[field];
+        this.setProfile('global', profileType, globalProfile);
+        break;
+      }
+      case 'custom': {
+        // Set both to the custom value
+        globalProfile[field] = customValue;
+        projectProfile[field] = customValue;
+        this.setProfile('global', profileType, globalProfile);
+        this.setProfile(project, profileType, projectProfile);
+        break;
+      }
+    }
+
+    logger.debug('PERSONA', `Resolved conflict: ${profileType}.${field} via ${resolution} for project ${project}`);
   }
 
   // ==========================================

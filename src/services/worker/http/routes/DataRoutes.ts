@@ -9,6 +9,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { readFileSync, statSync, existsSync } from 'fs';
 import { logger } from '../../../../utils/logger.js';
+import { AuditService } from '../../../audit/AuditService.js';
 import { getPackageRoot, DB_PATH } from '../../../../shared/paths.js';
 import { getWorkerPort } from '../../../../shared/worker-utils.js';
 import { PaginationHelper } from '../../PaginationHelper.js';
@@ -374,6 +375,15 @@ export class DataRoutes extends BaseRouteHandler {
       }
     }
 
+    const totalImported = stats.sessionsImported + stats.observationsImported + stats.summariesImported + stats.promptsImported;
+    if (totalImported > 0) {
+      AuditService.log(this.dbManager.getSessionStore().db, {
+        action: 'export_data',
+        details: { direction: 'import', ...stats },
+        record_count: totalImported,
+      });
+    }
+
     res.json({
       success: true,
       stats
@@ -447,6 +457,12 @@ export class DataRoutes extends BaseRouteHandler {
 
     logger.info('QUEUE', 'Cleared failed queue messages', { clearedCount });
 
+    AuditService.log(this.dbManager.getSessionStore().db, {
+      action: 'delete_observations',
+      details: { queue: 'failed' },
+      record_count: clearedCount,
+    });
+
     res.json({
       success: true,
       clearedCount
@@ -465,6 +481,12 @@ export class DataRoutes extends BaseRouteHandler {
     const clearedCount = pendingStore.clearAll();
 
     logger.warn('QUEUE', 'Cleared ALL queue messages (pending, processing, failed)', { clearedCount });
+
+    AuditService.log(this.dbManager.getSessionStore().db, {
+      action: 'delete_observations',
+      details: { queue: 'all' },
+      record_count: clearedCount,
+    });
 
     res.json({
       success: true,

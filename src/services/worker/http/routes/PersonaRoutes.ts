@@ -6,6 +6,7 @@ import express, { Request, Response } from 'express';
 import { Database } from 'bun:sqlite';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { logger } from '../../../../utils/logger.js';
+import { AuditService } from '../../../audit/AuditService.js';
 import type { PersonaService } from '../../../persona/PersonaService.js';
 import { ProjectScanService } from '../../../project/ProjectScanService.js';
 
@@ -23,6 +24,10 @@ export class PersonaRoutes extends BaseRouteHandler {
     app.get('/api/persona', this.handleGetMergedPersona.bind(this));
     app.get('/api/persona/profile', this.handleGetProfile.bind(this));
     app.post('/api/persona/profile', this.handleSetProfile.bind(this));
+
+    // Conflict detection & resolution endpoints
+    app.get('/api/persona/conflicts', this.wrapHandler(this.handleGetConflicts.bind(this)));
+    app.post('/api/persona/conflicts/resolve', this.wrapHandler(this.handleResolveConflict.bind(this)));
 
     // Bootstrap endpoints
     app.get('/api/bootstrap/status', this.handleGetBootstrapStatus.bind(this));
@@ -72,8 +77,50 @@ export class PersonaRoutes extends BaseRouteHandler {
       return;
     }
     this.personaService.setProfile(scope, type, content);
+    if (this.db) {
+      AuditService.log(this.db, {
+        action: 'profile_update',
+        details: { scope, type },
+      });
+    }
     res.json({ ok: true });
   });
+
+  // ==========================================
+  // Conflict Detection & Resolution
+  // ==========================================
+
+  private handleGetConflicts(req: Request, res: Response): void {
+    const project = req.query.project as string;
+    if (!project) {
+      this.badRequest(res, 'project is required');
+      return;
+    }
+    const conflicts = this.personaService.detectConflicts(project);
+    res.json(conflicts);
+  }
+
+  private handleResolveConflict(req: Request, res: Response): void {
+    const { project, profile_type, field, resolution, custom_value } = req.body;
+    if (!project || !profile_type || !field || !resolution) {
+      this.badRequest(res, 'project, profile_type, field, and resolution are required');
+      return;
+    }
+
+    const validResolutions = ['keep_global', 'keep_project', 'custom'];
+    if (!validResolutions.includes(resolution)) {
+      this.badRequest(res, `resolution must be one of: ${validResolutions.join(', ')}`);
+      return;
+    }
+
+    if (resolution === 'custom' && custom_value === undefined) {
+      this.badRequest(res, 'custom_value is required when resolution is "custom"');
+      return;
+    }
+
+    this.personaService.resolveConflict(project, profile_type, field, resolution, custom_value);
+    res.json({ ok: true });
+  }
 
   // ==========================================
   // Bootstrap

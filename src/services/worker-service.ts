@@ -128,7 +128,10 @@ import { MemoryRoutes } from './worker/http/routes/MemoryRoutes.js';
 import { PersonaRoutes } from './worker/http/routes/PersonaRoutes.js';
 import { ArchiveRoutes } from './worker/http/routes/ArchiveRoutes.js';
 import { CleanupRoutes } from './worker/http/routes/CleanupRoutes.js';
+import { AuditRoutes } from './worker/http/routes/AuditRoutes.js';
+import { TemplateRoutes } from './worker/http/routes/TemplateRoutes.js';
 import { PersonaService } from './persona/PersonaService.js';
+import { TemplateService } from './template/TemplateService.js';
 import { SessionArchiveService } from './archiving/SessionArchiveService.js';
 import { PromotionService } from './promotion/PromotionService.js';
 import { DataRetentionService } from './cleanup/DataRetentionService.js';
@@ -437,7 +440,13 @@ export class WorkerService {
         this.server.registerRoutes(new PersonaRoutes(personaService, db));
         this.server.registerRoutes(new ArchiveRoutes(archiveService, promotionService));
         this.server.registerRoutes(new CleanupRoutes(this.dbManager));
-        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup)');
+        this.server.registerRoutes(new AuditRoutes(this.dbManager));
+
+        // Template system
+        TemplateService.ensureDefaults(db);
+        const templateService = new TemplateService(db);
+        this.server.registerRoutes(new TemplateRoutes(templateService));
+        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup, templates, audit)');
       } catch (e) {
         logger.warn('WORKER', 'Agent Recall routes registration failed', {}, e as Error);
       }

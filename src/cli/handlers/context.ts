@@ -7,7 +7,7 @@
 
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
 import { ensureWorkerRunning, getWorkerPort, workerHttpRequest } from '../../shared/worker-utils.js';
-import { getProjectContext } from '../../utils/project-name.js';
+import { getProjectContext, isHomeDirectory } from '../../utils/project-name.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { logger } from '../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
@@ -31,14 +31,17 @@ export const contextHandler: EventHandler = {
     const cwd = input.cwd ?? process.cwd();
     const context = getProjectContext(cwd);
     const port = getWorkerPort();
+    const globalMode = isHomeDirectory(cwd);
 
     // Check if terminal output should be shown (load settings early)
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
     const showTerminalOutput = settings.CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true';
 
     // Pass all projects (parent + worktree if applicable) for unified timeline
+    // In global mode, pass the flag so context generation skips project-specific data
     const projectsParam = context.allProjects.join(',');
-    const apiPath = `/api/context/inject?projects=${encodeURIComponent(projectsParam)}`;
+    const globalParam = globalMode ? '&globalMode=true' : '';
+    const apiPath = `/api/context/inject?projects=${encodeURIComponent(projectsParam)}${globalParam}`;
     const colorApiPath = `${apiPath}&colors=true`;
 
     // Note: Removed AbortSignal.timeout due to Windows Bun cleanup issue (libuv assertion)

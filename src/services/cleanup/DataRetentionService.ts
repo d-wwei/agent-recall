@@ -16,6 +16,7 @@
 
 import { Database } from 'bun:sqlite';
 import { logger } from '../../utils/logger.js';
+import { AuditService } from '../audit/AuditService.js';
 
 export interface CleanupPreview {
   observations_to_delete: number;
@@ -185,6 +186,18 @@ export class DataRetentionService {
         sessions_deleted: result.sessions_deleted,
         retention_days: retentionDays,
         summary_retention_days: summaryRetentionDays,
+      });
+
+      AuditService.log(db, {
+        action: 'cleanup',
+        details: {
+          observations_deleted: result.observations_deleted,
+          summaries_deleted: result.summaries_deleted,
+          sessions_deleted: result.sessions_deleted,
+          retention_days: retentionDays,
+          summary_retention_days: summaryRetentionDays,
+        },
+        record_count: result.observations_deleted + result.summaries_deleted + result.sessions_deleted,
       });
 
       return {

@@ -3,6 +3,23 @@ import { logger } from './logger.js';
 import { detectWorktree } from './worktree.js';
 
 /**
+ * Check if the given directory is the user's HOME directory.
+ * Used to trigger "Global Quick Mode" — skip project-specific initialization
+ * when the user is just doing quick global tasks from HOME.
+ *
+ * Cross-platform: uses HOME on Unix, USERPROFILE on Windows.
+ *
+ * @param cwd - Current working directory (absolute path)
+ * @returns true if cwd is the home directory
+ */
+export function isHomeDirectory(cwd: string): boolean {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (!home) return false;
+  // Normalize paths for comparison (resolves trailing slashes, symlinks, etc.)
+  return path.resolve(cwd) === path.resolve(home);
+}
+
+/**
  * Extract project name from working directory path
  * Handles edge cases: null/undefined cwd, drive roots, trailing slashes
  *

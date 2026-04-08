@@ -38,6 +38,8 @@ export class MigrationRunner {
     this.createAgentRecallCoreTables();
     this.addScopeColumns();
     this.createSessionArchivesTable();
+    this.createTemplatesTable();
+    this.createAuditLogTable();
   }
 
   /**
@@ -1039,5 +1041,75 @@ export class MigrationRunner {
       this.db.run('ROLLBACK');
       throw error;
     }
+  }
+
+  /**
+   * Create templates table for reusable text templates (migration 27)
+   * Supports global and project-scoped templates with category filtering.
+   */
+  private createTemplatesTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(27) as SchemaVersion | undefined;
+    if (applied) return;
+
+    // Check if table already exists
+    const tables = this.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='templates'").all() as TableNameRow[];
+    if (tables.length > 0) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(27, new Date().toISOString());
+      return;
+    }
+
+    logger.debug('DB', 'Creating templates table');
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'global',
+        category TEXT,
+        content TEXT NOT NULL,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        created_at_epoch INTEGER NOT NULL,
+        updated_at TEXT,
+        updated_at_epoch INTEGER
+      )
+    `);
+    this.db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_templates_scope_name ON templates(scope, name)');
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(27, new Date().toISOString());
+    logger.debug('DB', 'templates table created successfully');
+  }
+
+  /**
+   * Create audit_log table for data operation tracking (migration 28)
+   * Records delete, export, cleanup, profile update, and review actions.
+   */
+  private createAuditLogTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(28) as SchemaVersion | undefined;
+    if (applied) return;
+
+    // Check if table already exists
+    const tables = this.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'").all() as TableNameRow[];
+    if (tables.length > 0) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(28, new Date().toISOString());
+      return;
+    }
+
+    logger.debug('DB', 'Creating audit_log table');
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        details TEXT,
+        record_count INTEGER,
+        performed_at TEXT NOT NULL,
+        performed_at_epoch INTEGER NOT NULL
+      )
+    `);
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_epoch ON audit_log(performed_at_epoch)');
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(28, new Date().toISOString());
+    logger.debug('DB', 'audit_log table created successfully');
   }
 }

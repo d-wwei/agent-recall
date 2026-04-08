@@ -72,6 +72,8 @@ export interface SettingsDefaults {
   CLAUDE_MEM_DATA_RETENTION_DAYS: string;       // Days to keep observations before cleanup
   CLAUDE_MEM_SUMMARY_RETENTION_DAYS: string;    // Days to keep summaries (kept longer than observations)
   CLAUDE_MEM_AUTO_CLEANUP_ENABLED: string;      // 'true' | 'false' - opt-in automatic cleanup
+  // Audit / Review
+  CLAUDE_MEM_AUDIT_REVIEW_INTERVAL_DAYS: string; // Days between memory review reminders
 }
 
 export class SettingsDefaultsManager {
@@ -136,6 +138,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_DATA_RETENTION_DAYS: '90',        // Observations older than 90 days
     CLAUDE_MEM_SUMMARY_RETENTION_DAYS: '365',    // Summaries kept longer
     CLAUDE_MEM_AUTO_CLEANUP_ENABLED: 'false',    // Opt-in only
+    // Audit / Review
+    CLAUDE_MEM_AUDIT_REVIEW_INTERVAL_DAYS: '30', // Monthly review reminder
   };
 
   /**

@@ -209,6 +209,7 @@ export class SearchRoutes extends BaseRouteHandler {
     const projectsParam = (req.query.projects as string) || (req.query.project as string);
     const useColors = req.query.colors === 'true';
     const full = req.query.full === 'true';
+    const globalMode = req.query.globalMode === 'true';
 
     if (!projectsParam) {
       this.badRequest(res, 'Project(s) parameter is required');
@@ -230,13 +231,14 @@ export class SearchRoutes extends BaseRouteHandler {
     const primaryProject = projects[projects.length - 1]; // Last is the current/primary project
     const cwd = `/context/${primaryProject}`;
 
-    // Generate context with all projects
+    // Generate context with all projects (globalMode skips project-specific data)
     const contextText = await generateContext(
       {
         session_id: 'context-inject-' + Date.now(),
         cwd: cwd,
         projects: projects,
-        full
+        full,
+        globalMode
       },
       useColors
     );

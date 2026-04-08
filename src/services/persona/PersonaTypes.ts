@@ -87,3 +87,12 @@ export interface TaskCheckpoint {
   status: 'pending' | 'in_progress' | 'completed';
   completed_at?: string;
 }
+
+export interface PersonaConflict {
+  profile_type: ProfileType;
+  field: string;
+  global_value: any;
+  project_value: any;
+}
+
+export type ConflictResolution = 'keep_global' | 'keep_project' | 'custom';

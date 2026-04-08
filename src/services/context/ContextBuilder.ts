@@ -10,7 +10,7 @@ import { homedir } from 'os';
 import { unlinkSync } from 'fs';
 import { SessionStore } from '../sqlite/SessionStore.js';
 import { logger } from '../../utils/logger.js';
-import { getProjectName } from '../../utils/project-name.js';
+import { getProjectName, isHomeDirectory } from '../../utils/project-name.js';
 
 import type { ContextInput, ContextConfig, Observation, SessionSummary } from './types.js';
 import { loadContextConfig } from './ContextConfigLoader.js';
@@ -34,7 +34,7 @@ import { renderActiveTask } from './sections/ActiveTaskRenderer.js';
 import { renderMarkdownEmptyState } from './formatters/MarkdownFormatter.js';
 import { renderColorEmptyState } from './formatters/ColorFormatter.js';
 import { PersonaService } from '../persona/PersonaService.js';
-import type { MergedPersona, ActiveTaskRow, BootstrapStateRow } from '../persona/PersonaTypes.js';
+import type { MergedPersona, ActiveTaskRow, BootstrapStateRow, PersonaConflict } from '../persona/PersonaTypes.js';
 
 // Version marker path for native module error handling
 const VERSION_MARKER_PATH = path.join(
@@ -102,13 +102,20 @@ function buildContextOutput(
   sessionId: string | undefined,
   useColors: boolean,
   persona?: MergedPersona | null,
-  activeTask?: ActiveTaskRow | null
+  activeTask?: ActiveTaskRow | null,
+  personaConflicts?: PersonaConflict[]
 ): string {
   const output: string[] = [];
 
   // Agent Recall: Render persona at the top (before everything else)
   if (persona) {
     output.push(...renderPersona(persona, useColors));
+  }
+
+  // Agent Recall: Warn about persona conflicts if any
+  if (personaConflicts && personaConflicts.length > 0) {
+    const warning = `⚠ Persona conflicts detected (${personaConflicts.length} field${personaConflicts.length > 1 ? 's' : ''} differ between global and project). Use /api/persona/conflicts?project=${encodeURIComponent(project)} to review.`;
+    output.push(warning, '');
   }
 
   // Agent Recall: Render active task (after persona, before timeline)
@@ -176,6 +183,9 @@ export async function generateContext(
   const cwd = input?.cwd ?? process.cwd();
   const project = getProjectName(cwd);
 
+  // Detect global mode: launched from HOME directory or explicitly requested
+  const globalMode = input?.globalMode ?? isHomeDirectory(cwd);
+
   // Use provided projects array (for worktree support) or fall back to single project
   const projects = input?.projects || [project];
 
@@ -192,6 +202,56 @@ export async function generateContext(
   }
 
   try {
+    // Global Quick Mode: skip project-specific observations and summaries,
+    // only load global persona and active tasks as an overview
+    if (globalMode) {
+      logger.debug('CONTEXT', 'Global Quick Mode — skipping project-specific context', { cwd, project });
+
+      let persona: MergedPersona | null = null;
+      let activeTask: ActiveTaskRow | null = null;
+      let bootstrapStatus: BootstrapStateRow | null = null;
+      try {
+        const personaService = new PersonaService(db.db);
+        // Only load global persona (scope='global'), no project-specific merge
+        persona = personaService.getMergedPersona('__global__');
+        bootstrapStatus = personaService.getBootstrapStatus('__global__');
+        // Still show active tasks from any project as a cross-project overview
+        activeTask = personaService.getActiveTask(project);
+      } catch (e) {
+        logger.debug('CONTEXT', 'Persona query skipped in global mode (tables may not exist yet)', {}, e as Error);
+      }
+
+      const output: string[] = [];
+
+      // Global mode header
+      if (useColors) {
+        output.push(`\x1b[36m\x1b[1m● Global Mode\x1b[0m \x1b[2m— launched from home directory\x1b[0m`, '');
+      } else {
+        output.push(`**Global Mode** — launched from home directory`, '');
+      }
+
+      // Render global persona
+      if (persona) {
+        output.push(...renderPersona(persona, useColors));
+      }
+
+      // Show active task overview (from any project)
+      if (activeTask) {
+        output.push(...renderActiveTask(activeTask, useColors));
+      }
+
+      // If no persona exists and bootstrap not completed, show welcome
+      if (!persona?.agent_soul?.name) {
+        const emptyState = renderEmptyState(project, useColors, bootstrapStatus);
+        if (emptyState) {
+          output.push(emptyState);
+        }
+      }
+
+      return output.join('\n').trimEnd();
+    }
+
+    // Standard mode: full project-specific context generation
     // Query data for all projects (supports worktree: parent + worktree combined)
     const observations = projects.length > 1
       ? queryObservationsMulti(db, projects, config)
@@ -200,15 +260,17 @@ export async function generateContext(
       ? querySummariesMulti(db, projects, config)
       : querySummaries(db, project, config);
 
-    // Agent Recall: Query persona, active task, and bootstrap status
+    // Agent Recall: Query persona, active task, bootstrap status, and conflicts
     let persona: MergedPersona | null = null;
     let activeTask: ActiveTaskRow | null = null;
     let bootstrapStatus: BootstrapStateRow | null = null;
+    let personaConflicts: PersonaConflict[] = [];
     try {
       const personaService = new PersonaService(db.db);
       persona = personaService.getMergedPersona(project);
       activeTask = personaService.getActiveTask(project);
       bootstrapStatus = personaService.getBootstrapStatus('__global__');
+      personaConflicts = personaService.detectConflicts(project);
     } catch (e) {
       // Graceful degradation: persona/recovery tables may not exist yet
       logger.debug('CONTEXT', 'Persona query skipped (tables may not exist yet)', {}, e as Error);
@@ -229,7 +291,8 @@ export async function generateContext(
       input?.session_id,
       useColors,
       persona,
-      activeTask
+      activeTask,
+      personaConflicts
     );
 
     return output;
