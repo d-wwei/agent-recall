@@ -81,3 +81,9 @@ export interface ActiveTaskRow {
   updated_at: string | null;
   updated_at_epoch: number | null;
 }
+
+export interface TaskCheckpoint {
+  name: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  completed_at?: string;
+}

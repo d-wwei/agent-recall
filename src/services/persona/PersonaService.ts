@@ -16,7 +16,8 @@ import type {
   StyleProfile,
   WorkflowProfile,
   BootstrapStateRow,
-  ActiveTaskRow
+  ActiveTaskRow,
+  TaskCheckpoint
 } from './PersonaTypes.js';
 
 export class PersonaService {
@@ -204,5 +205,99 @@ export class PersonaService {
       "UPDATE active_tasks SET status = 'completed', updated_at = ?, updated_at_epoch = ? WHERE project = ? AND status IN ('in_progress', 'blocked')"
     ).run(now, nowEpoch, project);
     logger.debug('PERSONA', `Completed active task for ${project}`);
+  }
+
+  // ==========================================
+  // Task Checkpoints
+  // ==========================================
+
+  getTaskCheckpoints(project: string): TaskCheckpoint[] {
+    const task = this.getActiveTask(project);
+    if (!task || !task.context_json) return [];
+
+    try {
+      const context = JSON.parse(task.context_json);
+      return Array.isArray(context.checkpoints) ? context.checkpoints : [];
+    } catch {
+      return [];
+    }
+  }
+
+  setCheckpoints(project: string, checkpoints: TaskCheckpoint[]): void {
+    const task = this.getActiveTask(project);
+    if (!task) return;
+
+    let existing: Record<string, any> = {};
+    if (task.context_json) {
+      try {
+        existing = JSON.parse(task.context_json);
+      } catch {
+        existing = {};
+      }
+    }
+
+    this.updateActiveTask(project, {
+      context_json: { ...existing, checkpoints }
+    });
+
+    logger.debug('PERSONA', `Set ${checkpoints.length} checkpoints for ${project}`);
+  }
+
+  addCheckpoint(project: string, name: string): void {
+    const checkpoints = this.getTaskCheckpoints(project);
+
+    const newCheckpoint: TaskCheckpoint = {
+      name,
+      status: checkpoints.length === 0 ? 'in_progress' : 'pending'
+    };
+
+    checkpoints.push(newCheckpoint);
+    this.setCheckpoints(project, checkpoints);
+
+    logger.debug('PERSONA', `Added checkpoint "${name}" for ${project}`);
+  }
+
+  completeCheckpoint(project: string, name: string): void {
+    const checkpoints = this.getTaskCheckpoints(project);
+    const idx = checkpoints.findIndex(c => c.name === name);
+    if (idx === -1) return;
+
+    // Mark the checkpoint as completed
+    checkpoints[idx].status = 'completed';
+    checkpoints[idx].completed_at = new Date().toISOString();
+
+    // Find the next pending checkpoint and set it to in_progress
+    const nextPending = checkpoints.find(c => c.status === 'pending');
+    if (nextPending) {
+      nextPending.status = 'in_progress';
+    }
+
+    // Update progress field
+    const completedCount = checkpoints.filter(c => c.status === 'completed').length;
+    const totalCount = checkpoints.length;
+    const currentName = nextPending?.name;
+    const progress = currentName
+      ? `Step ${completedCount + 1}/${totalCount}: ${currentName}`
+      : `Step ${completedCount}/${totalCount}: All complete`;
+
+    // Persist both checkpoints and progress
+    const task = this.getActiveTask(project);
+    if (!task) return;
+
+    let existing: Record<string, any> = {};
+    if (task.context_json) {
+      try {
+        existing = JSON.parse(task.context_json);
+      } catch {
+        existing = {};
+      }
+    }
+
+    this.updateActiveTask(project, {
+      progress,
+      context_json: { ...existing, checkpoints }
+    });
+
+    logger.debug('PERSONA', `Completed checkpoint "${name}" for ${project}`);
   }
 }

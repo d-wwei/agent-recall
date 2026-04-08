@@ -16,6 +16,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { getWorkerPort, getWorkerHost } from '../shared/worker-utils.js';
 import { HOOK_TIMEOUTS } from '../shared/hook-constants.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
+import { USER_SETTINGS_PATH } from '../shared/paths.js';
 import { getAuthMethodDescription } from '../shared/EnvManager.js';
 import { logger } from '../utils/logger.js';
 import { ChromaMcpManager } from './sync/ChromaMcpManager.js';
@@ -126,9 +127,11 @@ import { LogsRoutes } from './worker/http/routes/LogsRoutes.js';
 import { MemoryRoutes } from './worker/http/routes/MemoryRoutes.js';
 import { PersonaRoutes } from './worker/http/routes/PersonaRoutes.js';
 import { ArchiveRoutes } from './worker/http/routes/ArchiveRoutes.js';
+import { CleanupRoutes } from './worker/http/routes/CleanupRoutes.js';
 import { PersonaService } from './persona/PersonaService.js';
 import { SessionArchiveService } from './archiving/SessionArchiveService.js';
 import { PromotionService } from './promotion/PromotionService.js';
+import { DataRetentionService } from './cleanup/DataRetentionService.js';
 
 // Process management for zombie cleanup (Issue #737)
 import { startOrphanReaper, reapOrphanedProcesses, getProcessBySession, ensureProcessExit } from './worker/ProcessRegistry.js';
@@ -193,6 +196,9 @@ export class WorkerService {
 
   // Stale session reaper interval (Issue #1168)
   private staleSessionReaperInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Data retention cleanup interval (daily, opt-in)
+  private dataRetentionInterval: ReturnType<typeof setInterval> | null = null;
 
   // AI interaction tracking for health endpoint
   private lastAiInteraction: {
@@ -428,9 +434,10 @@ export class WorkerService {
         const personaService = new PersonaService(db);
         const archiveService = new SessionArchiveService(db);
         const promotionService = new PromotionService(db);
-        this.server.registerRoutes(new PersonaRoutes(personaService));
+        this.server.registerRoutes(new PersonaRoutes(personaService, db));
         this.server.registerRoutes(new ArchiveRoutes(archiveService, promotionService));
-        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives)');
+        this.server.registerRoutes(new CleanupRoutes(this.dbManager));
+        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup)');
       } catch (e) {
         logger.warn('WORKER', 'Agent Recall routes registration failed', {}, e as Error);
       }
@@ -521,6 +528,9 @@ export class WorkerService {
           logger.error('SYSTEM', 'Stale session reaper error', { error: e instanceof Error ? e.message : String(e) });
         }
       }, 2 * 60 * 1000);
+
+      // Data retention auto-cleanup (opt-in via settings)
+      this.startDataRetentionCleanup();
 
       // Auto-recover orphaned queues (fire-and-forget with error logging)
       this.processPendingQueues(50).then(result => {
@@ -921,6 +931,61 @@ export class WorkerService {
   }
 
   /**
+   * Start data retention auto-cleanup if enabled in settings.
+   * Runs once at startup and then every 24 hours.
+   */
+  private startDataRetentionCleanup(): void {
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+
+    if (settings.CLAUDE_MEM_AUTO_CLEANUP_ENABLED !== 'true') {
+      logger.debug('CLEANUP', 'Auto-cleanup disabled (CLAUDE_MEM_AUTO_CLEANUP_ENABLED != true)');
+      return;
+    }
+
+    const retentionDays = parseInt(settings.CLAUDE_MEM_DATA_RETENTION_DAYS, 10) || 90;
+    const summaryRetentionDays = parseInt(settings.CLAUDE_MEM_SUMMARY_RETENTION_DAYS, 10) || 365;
+
+    logger.info('CLEANUP', 'Auto-cleanup enabled, running initial cleanup', {
+      retentionDays,
+      summaryRetentionDays,
+    });
+
+    // Run once at startup
+    try {
+      const db = this.dbManager.getSessionStore().db;
+      const result = DataRetentionService.execute(db, retentionDays, summaryRetentionDays);
+      if (result.observations_to_delete > 0 || result.summaries_to_delete > 0 || result.sessions_to_cleanup > 0) {
+        logger.info('CLEANUP', 'Startup cleanup completed', {
+          observations: result.observations_to_delete,
+          summaries: result.summaries_to_delete,
+          sessions: result.sessions_to_cleanup,
+          duration_ms: result.duration_ms,
+        });
+      }
+    } catch (error) {
+      logger.error('CLEANUP', 'Startup cleanup failed (non-blocking)', {}, error as Error);
+    }
+
+    // Schedule daily cleanup (every 24 hours)
+    this.dataRetentionInterval = setInterval(() => {
+      try {
+        // Re-read settings in case they changed
+        const currentSettings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+        if (currentSettings.CLAUDE_MEM_AUTO_CLEANUP_ENABLED !== 'true') {
+          return; // Disabled since last check
+        }
+
+        const days = parseInt(currentSettings.CLAUDE_MEM_DATA_RETENTION_DAYS, 10) || 90;
+        const summaryDays = parseInt(currentSettings.CLAUDE_MEM_SUMMARY_RETENTION_DAYS, 10) || 365;
+        const db = this.dbManager.getSessionStore().db;
+        DataRetentionService.execute(db, days, summaryDays);
+      } catch (error) {
+        logger.error('CLEANUP', 'Scheduled cleanup failed (non-blocking)', {}, error as Error);
+      }
+    }, 24 * 60 * 60 * 1000); // 24 hours
+  }
+
+  /**
    * Shutdown the worker service
    */
   async shutdown(): Promise<void> {
@@ -934,6 +999,12 @@ export class WorkerService {
     if (this.staleSessionReaperInterval) {
       clearInterval(this.staleSessionReaperInterval);
       this.staleSessionReaperInterval = null;
+    }
+
+    // Stop data retention cleanup interval
+    if (this.dataRetentionInterval) {
+      clearInterval(this.dataRetentionInterval);
+      this.dataRetentionInterval = null;
     }
 
     await performGracefulShutdown({

@@ -54,9 +54,29 @@ After collecting Round 3 answers:
 1. `POST http://localhost:37777/api/persona/profile` with `{ "scope": "global", "type": "agent_soul", "content": { name, vibe, running_environment, channels } }`
 2. `POST http://localhost:37777/api/bootstrap/update` with `{ "scope": "__global__", "status": "completed", "round": 3 }`
 
+## Step 4: Historical Project Discovery (After Round 3)
+
+After completing the 3-round interview:
+
+1. Call `GET http://localhost:37777/api/projects/scan`
+2. If projects are found, present them to the user:
+   ```
+   I found N existing projects in your memory:
+
+   | Project | Sessions | Observations | Last Active |
+   |---------|----------|-------------|-------------|
+   | project-name | 12 | 45 | 2026-04-01 |
+
+   Would you like to set up project-specific personas for any of these?
+   ```
+3. For each project the user selects, run a mini-bootstrap (ask about their role/context for that specific project)
+4. Save project-specific profiles via `POST http://localhost:37777/api/persona/profile` with `scope: "project-name"`
+
+If no projects are found or the endpoint is unavailable, skip this step silently.
+
 ## Completion
 
-After all rounds:
+After all rounds (and optional project discovery):
 - Confirm the setup with a brief summary of what was captured
 - The persona will be injected into future sessions automatically
 

@@ -68,6 +68,10 @@ export interface SettingsDefaults {
   CLAUDE_MEM_CHROMA_API_KEY: string;
   CLAUDE_MEM_CHROMA_TENANT: string;
   CLAUDE_MEM_CHROMA_DATABASE: string;
+  // Data Retention / Lifecycle Cleanup
+  CLAUDE_MEM_DATA_RETENTION_DAYS: string;       // Days to keep observations before cleanup
+  CLAUDE_MEM_SUMMARY_RETENTION_DAYS: string;    // Days to keep summaries (kept longer than observations)
+  CLAUDE_MEM_AUTO_CLEANUP_ENABLED: string;      // 'true' | 'false' - opt-in automatic cleanup
 }
 
 export class SettingsDefaultsManager {
@@ -128,6 +132,10 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_CHROMA_API_KEY: '',
     CLAUDE_MEM_CHROMA_TENANT: 'default_tenant',
     CLAUDE_MEM_CHROMA_DATABASE: 'default_database',
+    // Data Retention / Lifecycle Cleanup
+    CLAUDE_MEM_DATA_RETENTION_DAYS: '90',        // Observations older than 90 days
+    CLAUDE_MEM_SUMMARY_RETENTION_DAYS: '365',    // Summaries kept longer
+    CLAUDE_MEM_AUTO_CLEANUP_ENABLED: 'false',    // Opt-in only
   };
 
   /**

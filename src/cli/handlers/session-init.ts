@@ -10,6 +10,7 @@ import { getProjectName } from '../../utils/project-name.js';
 import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { isProjectExcluded } from '../../utils/project-filter.js';
+import { ensureGitignoreEntries } from '../../utils/gitignore-handler.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 
@@ -42,6 +43,10 @@ export const sessionInitHandler: EventHandler = {
     const prompt = (!rawPrompt || !rawPrompt.trim()) ? '[media prompt]' : rawPrompt;
 
     const project = getProjectName(cwd);
+
+    if (cwd) {
+      ensureGitignoreEntries(cwd);
+    }
 
     logger.debug('HOOK', 'session-init: Calling /api/sessions/init', { contentSessionId: sessionId, project });
 
