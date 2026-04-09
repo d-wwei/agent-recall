@@ -393,6 +393,28 @@ export class WorkerService {
       });
     });
 
+    // POST /api/compilation/trigger — fire-and-forget compilation check at session end
+    this.server.app.post('/api/compilation/trigger', async (req, res) => {
+      const { project } = req.body;
+      res.json({ status: 'accepted' });
+
+      // Fire and forget
+      try {
+        const { CompilationEngine } = await import('./compilation/CompilationEngine.js');
+        const engine = new CompilationEngine(
+          this.dbManager.getSessionStore().db,
+          this.lockManager!,
+          { AGENT_RECALL_COMPILATION_ENABLED: 'true' }
+        );
+        const result = await engine.tryCompile(project);
+        if (result) {
+          logger.info('COMPILATION', 'Compilation completed', { project, ...result });
+        }
+      } catch (err) {
+        logger.error('COMPILATION', 'Compilation failed', {}, err as Error);
+      }
+    });
+
     // Note: Agent Recall routes (persona, bootstrap, recovery, archives) are registered
     // in initializeInBackground() after DB is initialized, not here in the constructor.
   }

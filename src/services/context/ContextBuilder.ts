@@ -109,7 +109,8 @@ function buildContextOutput(
   activeTask?: ActiveTaskRow | null,
   personaConflicts?: PersonaConflict[],
   budgetManager?: TokenBudgetManager,
-  completenessHints?: string[]
+  completenessHints?: string[],
+  compiledKnowledge?: any[]
 ): string {
   const output: string[] = [];
 
@@ -186,6 +187,21 @@ function buildContextOutput(
 
   // Render header section
   output.push(...renderHeader(project, economics, config, useColors));
+
+  // Phase 3: Prefer compiled knowledge for L2 if available
+  if (compiledKnowledge && compiledKnowledge.length > 0) {
+    // Use compiled knowledge pages instead of raw observations for context
+    const ckLines = compiledKnowledge.map((ck: any) =>
+      `### ${ck.topic}\n${ck.content}`
+    );
+    const ckText = ckLines.join('\n\n');
+    const ckTokens = TokenBudgetManager.estimateTokens(ckText);
+    if (budgetManager && budgetManager.canFit('L2', ckTokens)) {
+      output.push('\n## Project Knowledge\n');
+      output.push(ckText);
+      budgetManager.consume('L2', ckTokens);
+    }
+  }
 
   // L2 — filter observations to fit within token budget before timeline rendering
   let fittedObservations = observations;
@@ -394,6 +410,14 @@ export async function generateContext(
     // Create token budget manager for L0-L3 enforcement
     const budgetManager = new TokenBudgetManager((config as any).tokenBudget || 3000);
 
+    // Phase 3: Load compiled knowledge for L2 context preference
+    let compiledKnowledge: any[] = [];
+    try {
+      compiledKnowledge = db.getCompiledKnowledge(project);
+    } catch {
+      // Non-blocking: compiled_knowledge table may not exist in older installs
+    }
+
     // Build and return context
     const output = buildContextOutput(
       project,
@@ -407,7 +431,8 @@ export async function generateContext(
       activeTask,
       personaConflicts,
       budgetManager,
-      completenessHints
+      completenessHints,
+      compiledKnowledge
     );
 
     return output;

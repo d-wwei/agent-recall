@@ -10,7 +10,7 @@
  */
 
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
-import { ensureWorkerRunning, workerHttpRequest } from '../../shared/worker-utils.js';
+import { ensureWorkerRunning, workerHttpRequest, getWorkerPort } from '../../shared/worker-utils.js';
 import { logger } from '../../utils/logger.js';
 
 export const sessionCompleteHandler: EventHandler = {
@@ -22,7 +22,7 @@ export const sessionCompleteHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
-    const { sessionId } = input;
+    const { sessionId, cwd } = input;
 
     if (!sessionId) {
       logger.warn('HOOK', 'session-complete: Missing sessionId, skipping');
@@ -32,6 +32,8 @@ export const sessionCompleteHandler: EventHandler = {
     logger.info('HOOK', '→ session-complete: Removing session from active map', {
       contentSessionId: sessionId
     });
+
+    const projectPath = cwd ?? process.cwd();
 
     try {
       // Call the session complete endpoint by contentSessionId
@@ -58,6 +60,14 @@ export const sessionCompleteHandler: EventHandler = {
         error: (error as Error).message
       });
     }
+
+    // Fire compilation check (non-blocking)
+    const port = getWorkerPort();
+    fetch(`http://localhost:${port}/api/compilation/trigger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: projectPath }),
+    }).catch(() => {});
 
     return { continue: true, suppressOutput: true };
   }
