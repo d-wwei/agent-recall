@@ -31,6 +31,7 @@ import { shouldShowSummary, renderSummaryFields } from './sections/SummaryRender
 import { renderPreviouslySection, renderFooter } from './sections/FooterRenderer.js';
 import { renderPersona } from './sections/PersonaRenderer.js';
 import { renderActiveTask } from './sections/ActiveTaskRenderer.js';
+import { renderRecallProtocol } from './sections/RecallProtocolRenderer.js';
 import { renderMarkdownEmptyState } from './formatters/MarkdownFormatter.js';
 import { renderColorEmptyState } from './formatters/ColorFormatter.js';
 import { PersonaService } from '../persona/PersonaService.js';
@@ -111,6 +112,9 @@ function buildContextOutput(
   if (persona) {
     output.push(...renderPersona(persona, useColors));
   }
+
+  // Agent Recall: Inject RECALL_PROTOCOL behavioral directives (L0 — always present)
+  output.push(...renderRecallProtocol(useColors));
 
   // Agent Recall: Warn about persona conflicts if any
   if (personaConflicts && personaConflicts.length > 0) {
