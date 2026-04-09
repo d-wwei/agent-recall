@@ -354,6 +354,48 @@ export class ChromaSync {
     });
 
     await this.addDocuments(documents);
+
+    // Generate preference synthetic document if observation has preference
+    if (obs.has_preference) {
+      try {
+        const preferenceText = `User preference: ${obs.narrative || obs.title || 'Unknown preference'}`;
+        const preferenceId = `pref_${observationId}`;
+
+        const concepts = obs.concepts ?? [];
+        const baseMetadata: Record<string, string | number> = {
+          sqlite_id: observationId,
+          memory_session_id: memorySessionId,
+          project: project,
+          created_at_epoch: createdAtEpoch,
+          type: obs.type || 'discovery',
+          title: obs.title || 'Untitled',
+          confidence: obs.confidence ?? 'medium',
+          observation_type: obs.type || 'discovery',
+          topic: concepts.length > 0 ? concepts[0] : 'general',
+        };
+
+        await this.addDocuments([{
+          id: preferenceId,
+          document: preferenceText,
+          metadata: {
+            ...baseMetadata,
+            doc_type: 'preference_synthetic',
+            field_type: 'preference',
+          }
+        }]);
+
+        logger.debug('CHROMA_SYNC', 'Preference synthetic document added', {
+          observationId,
+          preferenceId,
+          project
+        });
+      } catch (error) {
+        logger.error('CHROMA_SYNC', 'Failed to add preference synthetic document (non-fatal)', {
+          observationId,
+          project
+        }, error as Error);
+      }
+    }
   }
 
   /**
