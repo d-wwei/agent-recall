@@ -21,6 +21,8 @@ import type {
   PersonaConflict,
   ConflictResolution
 } from './PersonaTypes.js';
+import { CompletenessChecker } from './CompletenessChecker.js';
+import type { CompletenessReport, StalenessReport } from './CompletenessChecker.js';
 
 export class PersonaService {
   constructor(private db: Database) {}
@@ -387,5 +389,28 @@ export class PersonaService {
     });
 
     logger.debug('PERSONA', `Completed checkpoint "${name}" for ${project}`);
+  }
+
+  // ==========================================
+  // Completeness & Staleness
+  // ==========================================
+
+  checkCompleteness(project: string): CompletenessReport {
+    const persona = this.getMergedPersona(project);
+    const checker = new CompletenessChecker();
+    return checker.check(persona);
+  }
+
+  checkStaleness(project: string): StalenessReport {
+    const checker = new CompletenessChecker();
+    const profiles = this.db.prepare(
+      "SELECT profile_type, updated_at FROM agent_profiles WHERE scope = ? OR scope = 'global'"
+    ).all(project) as { profile_type: string; updated_at: string }[];
+
+    const updatedAtMap: Record<string, string> = {};
+    for (const p of profiles) {
+      updatedAtMap[p.profile_type] = p.updated_at;
+    }
+    return checker.checkStaleness(updatedAtMap);
   }
 }
