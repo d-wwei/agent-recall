@@ -16,7 +16,7 @@
  * - EPERM is treated as "process alive" (conservative).
  */
 
-import { mkdirSync, writeFileSync, unlinkSync, readFileSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, unlinkSync, readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 interface LockFileContent {
@@ -31,9 +31,9 @@ export class LockManager {
    * @param locksDir Directory where `.lock` files are stored.
    *                 Created (recursively) if it does not already exist.
    */
-  constructor(locksDir: string) {
-    this.locksDir = locksDir;
-    mkdirSync(locksDir, { recursive: true });
+  constructor(locksDir?: string) {
+    this.locksDir = locksDir || join(require('os').tmpdir(), '.agent-recall-locks-' + process.pid);
+    mkdirSync(this.locksDir, { recursive: true });
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -73,6 +73,14 @@ export class LockManager {
     const lockPath = this.lockPath(taskName);
     if (existsSync(lockPath)) {
       unlinkSync(lockPath);
+    }
+  }
+
+  releaseAll(): void {
+    if (!existsSync(this.locksDir)) return;
+    const files = readdirSync(this.locksDir).filter(f => f.endsWith('.lock'));
+    for (const file of files) {
+      try { unlinkSync(join(this.locksDir, file)); } catch {}
     }
   }
 

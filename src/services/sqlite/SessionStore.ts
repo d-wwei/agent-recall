@@ -2274,6 +2274,60 @@ export class SessionStore {
     return memorySessionId;
   }
 
+  // ===========================================
+  // Compiled Knowledge Methods
+  // ===========================================
+
+  /**
+   * Get all active compiled knowledge entries for a project
+   */
+  getCompiledKnowledge(project: string): any[] {
+    return this.db.prepare(
+      'SELECT * FROM compiled_knowledge WHERE project = ? AND valid_until IS NULL ORDER BY compiled_at DESC'
+    ).all(project);
+  }
+
+  /**
+   * Get the latest compiled knowledge entry for a specific topic
+   */
+  getCompiledKnowledgeByTopic(project: string, topic: string): any | null {
+    return this.db.prepare(
+      'SELECT * FROM compiled_knowledge WHERE project = ? AND topic = ? AND valid_until IS NULL ORDER BY version DESC LIMIT 1'
+    ).get(project, topic) || null;
+  }
+
+  /**
+   * Insert or update a compiled knowledge entry for a project/topic pair
+   * Returns the id of the inserted or updated row
+   */
+  upsertCompiledKnowledge(project: string, topic: string, content: string, sourceObservationIds: number[], confidence: string = 'high'): number {
+    const existing = this.getCompiledKnowledgeByTopic(project, topic);
+    const now = new Date().toISOString();
+
+    if (existing) {
+      // Update existing
+      this.db.prepare(
+        'UPDATE compiled_knowledge SET content = ?, source_observation_ids = ?, confidence = ?, version = version + 1, compiled_at = ? WHERE id = ?'
+      ).run(content, JSON.stringify(sourceObservationIds), confidence, now, existing.id);
+      return existing.id;
+    } else {
+      // Insert new
+      const result = this.db.prepare(
+        'INSERT INTO compiled_knowledge (project, topic, content, source_observation_ids, confidence, compiled_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(project, topic, content, JSON.stringify(sourceObservationIds), confidence, now);
+      return Number(result.lastInsertRowid);
+    }
+  }
+
+  /**
+   * Get observations recorded after a given epoch timestamp for a project
+   */
+  getObservationsSinceEpoch(project: string, sinceEpoch: number): any[] {
+    return this.db.prepare(
+      'SELECT * FROM observations WHERE project = ? AND created_at_epoch > ? ORDER BY created_at_epoch ASC'
+    ).all(project, sinceEpoch);
+  }
+
   /**
    * Close the database connection
    */
