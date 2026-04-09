@@ -36,6 +36,7 @@ const TYPE_WEIGHTS: Record<string, number> = {
   bugfix:    0.7,
   feature:   0.6,
   change:    0.5,
+  synthesis: 0.5,  // Anti-feedback-loop: synthesis observations ranked below original content
   refactor:  0.4,
 };
 const DEFAULT_TYPE_WEIGHT = 0.5;
