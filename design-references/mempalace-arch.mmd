@@ -1,0 +1,47 @@
+graph LR
+    F["📁 项目文件"] --> M["✂️ 切片器<br/>800字符/块"]
+    C["💬 会话导出<br/>Claude/ChatGPT/Slack"] --> M
+    O["🎤 引导面谈<br/>模式/人物/项目"] --> ER["📋 实体注册表<br/>引导 &gt; 学习 &gt; 维基"]
+    O --> KG["🕸️ 知识图谱 SQLite<br/>实体+三元组<br/>valid_from / valid_to"]
+
+    M --> RD["🏷️ 房间路由<br/>文件夹名匹配<br/>关键词评分"]
+    RD --> CH["🗄️ ChromaDB 主存储<br/>单集合 mempalace_drawers<br/>MiniLM-L6 嵌入"]
+    ED["🔍 实体检测<br/>纯正则 NER<br/>打分+分类"] --> ER
+    GE["📝 记忆分类<br/>决策/偏好/里程碑<br/>问题/情绪"] --> CH
+
+    ID["🪪 identity.txt<br/>~100 token"] --> L0["L0 身份层<br/>~100t 永远加载"]
+    CH --> L1["L1 核心故事<br/>top15 按重要性<br/>~800t 永远加载"]
+    CH --> L2["L2 按需召回<br/>翼楼+房间过滤<br/>~200-500t"]
+    CH --> L3["L3 深度搜索<br/>完整语义搜索"]
+
+    L3 --> VS["🔎 向量搜索<br/>ChromaDB top50"]
+    VS --> KW["📊 关键词重排序<br/>dist*(1-0.3*overlap)"]
+    KW --> TB["📅 时间锚点加权<br/>解析「几周前」<br/>最高减40%距离"]
+    TB --> PE["💡 偏好合成文档<br/>16个正则模式"]
+    PE --> LR["🤖 LLM精排 可选<br/>Haiku 从top20选1"]
+
+    CH --> PG["🏛️ 宫殿图谱<br/>翼楼-房间-走廊<br/>从metadata涌现"]
+    PG --> TN["🚇 隧道<br/>跨翼楼连接<br/>BFS遍历"]
+
+    MCP["🔌 MCP服务器<br/>19工具 JSON-RPC<br/>PALACE_PROTOCOL"] -->|读写| CH
+    MCP -->|查询/失效| KG
+    SH["⏰ 保存钩子<br/>每15轮阻断"] -->|阻断AI| MCP
+    PH["🚨 压缩前钩子<br/>永远阻断"] -->|阻断AI| MCP
+
+    style F fill:#e3f2fd
+    style C fill:#e3f2fd
+    style O fill:#e3f2fd
+    style CH fill:#fff3e0
+    style KG fill:#fff3e0
+    style L0 fill:#e8f5e9
+    style L1 fill:#e8f5e9
+    style L2 fill:#e8f5e9
+    style L3 fill:#e8f5e9
+    style VS fill:#fce4ec
+    style KW fill:#fce4ec
+    style TB fill:#fce4ec
+    style PE fill:#fce4ec
+    style LR fill:#fce4ec
+    style MCP fill:#f3e5f5
+    style SH fill:#f3e5f5
+    style PH fill:#f3e5f5

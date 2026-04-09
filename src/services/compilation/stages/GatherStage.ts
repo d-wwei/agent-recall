@@ -29,7 +29,7 @@ export class GatherStage {
         .prepare(
           `SELECT id, type, title, subtitle, narrative, facts, concepts, project, created_at_epoch
            FROM observations
-           WHERE project = ? AND created_at_epoch > ?
+           WHERE project = ? AND created_at_epoch > ? AND type != 'synthesis'
            ORDER BY created_at_epoch ASC`
         )
         .all(ctx.project, ctx.lastCompilationEpoch) as ObservationRow[];
