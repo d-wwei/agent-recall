@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Style B — Terminal Noir</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0a;
+    --bg-card: #111111;
+    --bg-hover: #161616;
+    --bg-surface: #0e0e0e;
+    --border: #1e1e1e;
+    --border-glow: #1a3a2a;
+    --text-1: #c8c8c8;
+    --text-2: #808080;
+    --text-3: #505050;
+    --text-4: #303030;
+    --green: #00e88a;
+    --green-dim: #00c070;
+    --green-subtle: rgba(0,232,138,0.06);
+    --green-glow: rgba(0,232,138,0.15);
+    --amber: #ffb020;
+    --amber-subtle: rgba(255,176,32,0.08);
+    --cyan: #00d4ff;
+    --cyan-subtle: rgba(0,212,255,0.06);
+    --violet: #a78bfa;
+    --violet-subtle: rgba(167,139,250,0.06);
+    --red: #ff4040;
+    --font: 'JetBrains Mono', 'Monaco', monospace;
+  }
+
+  html { font-size: 14px; -webkit-font-smoothing: antialiased; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text-1); line-height: 1.6; }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  }
+
+  .header {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(10,10,10,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px; height: 48px;
+    display: flex; align-items: center; gap: 16px;
+    font-size: 12px;
+  }
+  .logo { display: flex; align-items: center; gap: 8px; color: var(--green); }
+  .logo-icon {
+    width: 8px; height: 8px; background: var(--green); border-radius: 50%;
+    box-shadow: 0 0 8px var(--green-glow), 0 0 2px var(--green);
+    animation: blink 2s ease infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .logo-text { font-weight: 600; font-size: 12px; letter-spacing: .02em; }
+
+  .nav { display: flex; gap: 0; flex: 1; }
+  .nav a {
+    padding: 4px 12px; font-size: 11px; color: var(--text-3);
+    text-decoration: none; text-transform: uppercase; letter-spacing: .08em;
+    transition: color .12s; border-bottom: 1px solid transparent; font-weight: 500;
+  }
+  .nav a:hover { color: var(--text-2); }
+  .nav a.on { color: var(--green); border-bottom-color: var(--green); }
+
+  .hdr-r { display: flex; align-items: center; gap: 8px; }
+  .status { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .status .on { color: var(--green); }
+
+  .stats {
+    display: flex; border-bottom: 1px solid var(--border);
+    font-size: 11px; padding: 0 24px;
+  }
+  .stat {
+    padding: 10px 20px 10px 0; display: flex; align-items: baseline; gap: 6px;
+    border-right: 1px solid var(--border);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-n { font-size: 16px; font-weight: 700; color: var(--green); font-variant-numeric: tabular-nums; }
+  .stat-l { color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+
+  .filters {
+    display: flex; gap: 4px; padding: 8px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pill {
+    padding: 3px 10px; font-size: 10px; font-weight: 500; color: var(--text-3);
+    border: 1px solid var(--border); background: none; border-radius: 2px;
+    cursor: pointer; font-family: var(--font); text-transform: uppercase;
+    letter-spacing: .06em; transition: all .12s;
+  }
+  .pill:hover { border-color: var(--text-3); color: var(--text-2); }
+  .pill.on { background: var(--green); color: var(--bg); border-color: var(--green); }
+
+  .feed { max-width: 800px; margin: 0 auto; padding: 12px 24px 60px; }
+
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; margin-bottom: 6px; overflow: hidden;
+    transition: border-color .15s;
+  }
+  .card:hover { border-color: var(--border-glow); }
+  .card.obs-card:hover { border-color: rgba(0,232,138,0.2); }
+  .card.sum-card:hover { border-color: rgba(255,176,32,0.2); }
+  .card.pmt-card:hover { border-color: rgba(167,139,250,0.2); }
+
+  .card-hd { display: flex; gap: 10px; padding: 12px 14px; cursor: pointer; }
+  .bar { width: 2px; flex-shrink: 0; align-self: stretch; border-radius: 1px; }
+  .bar.obs { background: var(--green); box-shadow: 0 0 6px var(--green-glow); }
+  .bar.sum { background: var(--amber); }
+  .bar.pmt { background: var(--violet); }
+  .card-body { flex: 1; min-width: 0; }
+  .card-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .badge {
+    font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 2px;
+    text-transform: uppercase; letter-spacing: .06em;
+  }
+  .badge.obs { background: var(--green-subtle); color: var(--green); }
+  .badge.sum { background: var(--amber-subtle); color: var(--amber); }
+  .badge.pmt { background: var(--violet-subtle); color: var(--violet); }
+  .time { font-size: 10px; color: var(--text-4); }
+  .title { font-size: 13px; font-weight: 500; color: var(--text-1); line-height: 1.4; }
+  .sub { font-size: 12px; color: var(--text-2); margin-top: 1px; }
+
+  .card-expand { padding: 0 14px 12px 26px; }
+  .narrative { font-size: 12px; color: var(--text-2); line-height: 1.7; margin-bottom: 10px; }
+  .facts { list-style: none; display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+  .facts li {
+    font-size: 11px; color: var(--text-2); padding: 3px 8px;
+    background: var(--bg-surface); border-left: 2px solid var(--green-dim);
+    line-height: 1.4;
+  }
+  .tags { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 8px; }
+  .tag {
+    font-size: 10px; padding: 1px 7px; border-radius: 2px;
+    background: var(--green-subtle); color: var(--green-dim);
+    border: 1px solid rgba(0,232,138,0.1); cursor: pointer; transition: all .1s;
+  }
+  .tag:hover { background: var(--green); color: var(--bg); border-color: var(--green); }
+  .files { display: flex; flex-wrap: wrap; gap: 3px; }
+  .file {
+    font-size: 10px; padding: 1px 6px; border-radius: 2px;
+    background: var(--bg-surface); color: var(--text-3); display: flex; align-items: center; gap: 4px;
+  }
+  .fdot { width: 4px; height: 4px; border-radius: 50%; }
+  .fdot.r { background: var(--text-3); }
+  .fdot.m { background: var(--green); box-shadow: 0 0 4px var(--green-glow); }
+
+  .quad { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 0 14px 12px 26px; }
+  .q { padding: 8px 10px; background: var(--bg-surface); border-radius: 2px; border-left: 2px solid var(--amber); }
+  .q-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--amber); margin-bottom: 2px; }
+  .q-text { font-size: 11px; color: var(--text-2); line-height: 1.5; }
+
+  .prompt-text {
+    font-size: 12px; color: var(--violet); padding: 0 14px 12px 26px;
+    line-height: 1.5; opacity: 0.8;
+  }
+  .prompt-text::before { content: '> '; color: var(--text-3); }
+
+  .style-label {
+    position: fixed; bottom: 16px; right: 16px;
+    background: var(--green); color: var(--bg); padding: 6px 14px;
+    border-radius: 2px; font-size: 11px; font-weight: 600;
+    font-family: var(--font); z-index: 99; text-transform: uppercase;
+    letter-spacing: .04em;
+    box-shadow: 0 0 20px var(--green-glow);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-icon"></div>
+    <span class="logo-text">agent-recall</span>
+  </div>
+  <nav class="nav">
+    <a href="#" class="on">feed</a><a href="#">search</a><a href="#">sessions</a><a href="#">settings</a>
+  </nav>
+  <div class="hdr-r">
+    <span class="status"><span class="on">&#9679;</span> connected &middot; queue: 3</span>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><span class="stat-n">2,847</span><span class="stat-l">mem</span></div>
+  <div class="stat"><span class="stat-n">186</span><span class="stat-l">sess</span></div>
+  <div class="stat"><span class="stat-n">12</span><span class="stat-l">proj</span></div>
+  <div class="stat"><span class="stat-n">48M</span><span class="stat-l">db</span></div>
+</div>
+
+<div class="filters">
+  <button class="pill on">ALL</button>
+  <button class="pill">OBS</button>
+  <button class="pill">SUM</button>
+  <button class="pill">PMT</button>
+</div>
+
+<div class="feed">
+  <div class="card obs-card">
+    <div class="card-hd">
+      <div class="bar obs"></div>
+      <div class="card-body">
+        <div class="card-meta"><span class="badge obs">obs</span><span class="time">12s</span></div>
+        <div class="title">Worker Service Refactored to Orchestrator Pattern</div>
+        <div class="sub">Decomposed monolithic worker into domain-driven services</div>
+      </div>
+    </div>
+    <div class="card-expand">
+      <p class="narrative">The worker service was refactored from a 2000-line monolith into an orchestrator that delegates to specialized domain services. Background initialization uses promise-based tracking with lazy SearchRoutes loading.</p>
+      <ul class="facts">
+        <li>WorkerService now delegates to Infrastructure, Server, Worker modules</li>
+        <li>SearchRoutes initialization deferred until MCP ready</li>
+        <li>Background initialization tracked via promise resolver pattern</li>
+      </ul>
+      <div class="tags"><span class="tag">architecture</span><span class="tag">refactoring</span><span class="tag">worker-service</span></div>
+      <div class="files">
+        <span class="file"><span class="fdot m"></span>worker-service.ts</span>
+        <span class="file"><span class="fdot m"></span>Server.ts</span>
+        <span class="file"><span class="fdot r"></span>SearchRoutes.ts</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card sum-card">
+    <div class="card-hd">
+      <div class="bar sum"></div>
+      <div class="card-body">
+        <div class="card-meta"><span class="badge sum">sum</span><span class="time">2h</span></div>
+        <div class="title">Session #184 &mdash; agent-recall</div>
+        <div class="sub">Refactored worker architecture, fixed initialization race conditions</div>
+      </div>
+    </div>
+    <div class="quad">
+      <div class="q"><div class="q-label">investigated</div><div class="q-text">Worker service initialization flow, background promise resolution</div></div>
+      <div class="q"><div class="q-label">learned</div><div class="q-text">Promise resolver pattern enables dual initialization tracking</div></div>
+      <div class="q"><div class="q-label">completed</div><div class="q-text">Extracted domain services, implemented lazy route loading</div></div>
+      <div class="q"><div class="q-label">next</div><div class="q-text">Health check retry logic, graceful shutdown propagation</div></div>
+    </div>
+  </div>
+
+  <div class="card obs-card">
+    <div class="card-hd">
+      <div class="bar obs"></div>
+      <div class="card-body">
+        <div class="card-meta"><span class="badge obs">obs</span><span class="time">2h</span></div>
+        <div class="title">SDKAgent Implements Event-Driven Query Loop</div>
+        <div class="sub">Observer-only pattern with tool restrictions for memory extraction</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card pmt-card">
+    <div class="card-hd">
+      <div class="bar pmt"></div>
+      <div class="card-body">
+        <div class="card-meta"><span class="badge pmt">pmt</span><span class="time">3h</span></div>
+        <div class="title">prompt #42</div>
+      </div>
+    </div>
+    <div class="prompt-text">Refactor the worker service into smaller domain services. Keep the orchestrator thin and delegate to specialized modules.</div>
+  </div>
+
+  <div class="card obs-card">
+    <div class="card-hd">
+      <div class="bar obs"></div>
+      <div class="card-body">
+        <div class="card-meta"><span class="badge obs">obs</span><span class="time">3h</span></div>
+        <div class="title">SessionManager Event-Driven Lifecycle with Database-First Persistence</div>
+        <div class="sub">Zero-latency queuing with auto-initialization on first observation</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="style-label">B &mdash; Terminal Noir</div>
+</body>
+</html>

@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Style E — Dark Library (B+C Fusion)</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ===== Dark Library — warm dark, serif titles, mono metadata ===== */
+  :root {
+    /* Dark mode (default) — warm espresso tones, not cold black */
+    --bg: #16140f;
+    --bg-raised: #1d1b15;
+    --bg-surface: #24211a;
+    --bg-hover: #2a2720;
+    --bg-glow: rgba(212, 168, 80, 0.03);
+    --border: #2e2a22;
+    --border-hover: #3e3828;
+    --border-subtle: #252118;
+
+    --text-1: #e8e0d0;
+    --text-2: #b0a898;
+    --text-3: #787060;
+    --text-4: #484038;
+
+    /* Warm amber as primary accent (bridges B's terminal glow + C's warmth) */
+    --amber: #d4a84c;
+    --amber-dim: #a88838;
+    --amber-glow: rgba(212, 168, 76, 0.12);
+    --amber-subtle: rgba(212, 168, 76, 0.06);
+
+    /* Secondary accents — muted, not competing */
+    --teal: #5abeaa;
+    --teal-subtle: rgba(90, 190, 170, 0.07);
+    --plum: #a488c0;
+    --plum-subtle: rgba(164, 136, 192, 0.07);
+    --green: #5ab870;
+    --green-glow: rgba(90, 184, 112, 0.2);
+    --red: #d06050;
+
+    --shadow: 0 1px 4px rgba(0,0,0,0.3);
+
+    --serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+    --sans: 'DM Sans', -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', 'Monaco', 'Menlo', monospace;
+  }
+
+  /* Light mode — cream paper with same font logic */
+  [data-theme="light"] {
+    --bg: #faf5ea;
+    --bg-raised: #faf5ea;
+    --bg-surface: #f0eade;
+    --bg-hover: #ede6d6;
+    --bg-glow: rgba(180, 140, 50, 0.04);
+    --border: #ddd4c0;
+    --border-hover: #c8be9e;
+    --border-subtle: #e8e0d0;
+
+    --text-1: #1e1a14;
+    --text-2: #504838;
+    --text-3: #8a7e6e;
+    --text-4: #c0b8a4;
+
+    --amber: #a87830;
+    --amber-dim: #8a6228;
+    --amber-glow: rgba(168, 120, 48, 0.1);
+    --amber-subtle: rgba(168, 120, 48, 0.06);
+
+    --teal: #1a7a6a;
+    --teal-subtle: rgba(26, 122, 106, 0.06);
+    --plum: #6a4880;
+    --plum-subtle: rgba(106, 72, 128, 0.06);
+    --green: #3a7a3a;
+    --green-glow: rgba(58, 122, 58, 0.15);
+    --red: #b04030;
+
+    --shadow: 0 1px 3px rgba(30,26,20,0.06);
+  }
+
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: var(--sans); background: var(--bg); color: var(--text-1);
+    line-height: 1.65; transition: background .3s, color .3s;
+  }
+
+  /* Subtle grain texture (from B's atmosphere, but warmer) */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+    opacity: 0.015;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ===== HEADER — single line, editorial (like C) ===== */
+  .header {
+    max-width: 640px; margin: 0 auto;
+    padding: 40px 32px 0;
+    display: flex; align-items: baseline; justify-content: space-between;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green-glow);
+    animation: pulse 3s ease infinite;
+    flex-shrink: 0;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .logo-dot.offline { background: var(--red); box-shadow: none; animation: none; }
+
+  .logo-text {
+    font-family: var(--serif); font-size: 20px; font-weight: 500;
+    color: var(--text-1); letter-spacing: -0.01em;
+  }
+  .logo-text em { font-style: italic; color: var(--amber); }
+
+  /* Icon buttons group on the right */
+  .hdr-r { display: flex; align-items: center; gap: 2px; }
+  .queue-badge {
+    font-family: var(--mono); font-size: 10px; color: var(--text-3);
+    padding: 2px 8px; border: 1px solid var(--border);
+    border-radius: 3px; letter-spacing: .02em; margin-right: 8px;
+  }
+  .queue-badge strong { color: var(--amber); }
+  .project-select {
+    font-family: var(--mono); font-size: 11px; color: var(--text-3);
+    background: transparent; border: 1px solid var(--border); border-radius: 4px;
+    padding: 4px 8px; cursor: pointer; outline: none; margin-right: 4px;
+  }
+  .project-select option { background: var(--bg-raised); }
+  .icon-btn {
+    width: 32px; height: 32px; border: none; background: none; color: var(--text-3);
+    cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    transition: all .15s; position: relative;
+  }
+  .icon-btn:hover { color: var(--text-1); background: var(--amber-subtle); }
+  .icon-btn svg { width: 16px; height: 16px; }
+
+  /* Divider below header */
+  .header-divider {
+    max-width: 640px; margin: 20px auto 0;
+    border: none; border-top: 1px solid var(--border);
+  }
+
+  /* ===== FEED TOOLBAR — filters left, project right ===== */
+  .toolbar {
+    max-width: 640px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 32px;
+  }
+  .toolbar-left {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .toolbar-right {
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  /* View toggle — feed vs sessions */
+  .view-toggle {
+    display: flex; background: var(--bg-surface); border-radius: 4px;
+    padding: 2px; gap: 1px;
+  }
+  .view-toggle button {
+    width: 28px; height: 24px; border: none; background: none;
+    color: var(--text-4); cursor: pointer; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .12s;
+  }
+  .view-toggle button:hover { color: var(--text-2); }
+  .view-toggle button.on {
+    background: var(--border); color: var(--text-1);
+  }
+  .view-toggle button svg { width: 14px; height: 14px; }
+  .pill .count {
+    font-variant-numeric: tabular-nums;
+    margin-left: 4px;
+    opacity: 0.6;
+  }
+  .pill.on .count { opacity: 0.8; }
+  .pill {
+    font-family: var(--mono); padding: 4px 12px;
+    font-size: 10px; font-weight: 500; color: var(--text-4);
+    background: none; border: 1px solid var(--border); border-radius: 3px;
+    cursor: pointer; letter-spacing: .03em; transition: all .12s;
+  }
+  .pill:hover { border-color: var(--text-3); color: var(--text-2); }
+  .pill.on { background: var(--amber); color: var(--bg); border-color: var(--amber); }
+
+  /* ===== FEED ===== */
+  .feed { max-width: 640px; margin: 0 auto; padding: 8px 32px 100px; }
+
+  /* ===== CARDS — divider-separated (C), with accent bar (B) ===== */
+  .card {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 32px 0;
+    transition: background .15s;
+    cursor: pointer;
+  }
+  .card:first-child { padding-top: 28px; }
+  .card:hover { background: var(--bg-glow); margin: 0 -16px; padding-left: 16px; padding-right: 16px; border-radius: 8px; }
+
+  .card-meta {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  }
+  .badge {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    letter-spacing: .04em; display: flex; align-items: center; gap: 5px;
+  }
+  .badge::before {
+    content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 1px;
+  }
+  .badge.obs { color: var(--teal); }
+  .badge.obs::before { background: var(--teal); }
+  .badge.sum { color: var(--amber); }
+  .badge.sum::before { background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }
+  .badge.pmt { color: var(--plum); }
+  .badge.pmt::before { background: var(--plum); }
+  .dot-sep { color: var(--text-4); font-size: 8px; }
+  .time { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+
+  /* Titles in serif (from C) — the literary quality */
+  .title {
+    font-family: var(--serif); font-size: 19px; font-weight: 500;
+    color: var(--text-1); line-height: 1.4; letter-spacing: -0.005em;
+    margin-bottom: 6px;
+  }
+  .sub {
+    font-family: var(--sans); font-size: 14px; color: var(--text-2);
+    line-height: 1.55;
+  }
+
+  /* ===== EXPANDED CONTENT ===== */
+  .card-expand { padding-top: 20px; }
+
+  .narrative {
+    font-family: var(--sans); font-size: 14px; color: var(--text-2);
+    line-height: 1.8; margin-bottom: 20px;
+    text-wrap: pretty;
+    max-width: 560px;
+  }
+
+  /* Facts with left accent bar (from B) */
+  .facts {
+    list-style: none; margin-bottom: 20px;
+    border-left: 2px solid var(--amber-dim);
+    padding-left: 16px;
+  }
+  .facts li {
+    font-family: var(--sans); font-size: 13px; color: var(--text-2);
+    line-height: 1.6; padding: 4px 0;
+  }
+  .facts li::before {
+    content: ''; display: inline-block; width: 4px; height: 4px;
+    border-radius: 50%; background: var(--amber); margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  /* Tags — mono, subtle (B's utility feel) */
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .tag {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    padding: 3px 10px; border-radius: 3px;
+    background: var(--teal-subtle); color: var(--teal);
+    border: 1px solid transparent;
+    cursor: pointer; transition: all .12s; letter-spacing: .02em;
+  }
+  .tag:hover { background: var(--teal); color: var(--bg); }
+
+  /* Files — mono, with status dots (from B) */
+  .files { display: flex; flex-wrap: wrap; gap: 6px; }
+  .file {
+    font-family: var(--mono); font-size: 11px; padding: 3px 10px;
+    color: var(--text-3); display: flex; align-items: center; gap: 5px;
+  }
+  .fdot { width: 5px; height: 5px; border-radius: 50%; }
+  .fdot.r { background: var(--text-4); }
+  .fdot.m { background: var(--green); box-shadow: 0 0 4px var(--green-glow); }
+
+  /* ===== SUMMARY QUADRANTS — editorial grid (C) with warm accents ===== */
+  .quad {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    margin-top: 20px;
+  }
+  .q {
+    padding: 16px 18px; background: var(--bg-surface); border-radius: 8px;
+    border-left: 2px solid var(--amber-dim);
+  }
+  .q-label {
+    font-family: var(--serif); font-size: 11px; font-weight: 500;
+    font-style: italic; color: var(--amber);
+    margin-bottom: 6px;
+  }
+  .q-text {
+    font-family: var(--sans); font-size: 13px; color: var(--text-2);
+    line-height: 1.65;
+  }
+
+  /* ===== PROMPT ===== */
+  .prompt-text {
+    font-family: var(--serif); font-size: 16px; font-style: italic;
+    color: var(--text-2); line-height: 1.7; margin-top: 14px;
+    padding-left: 18px; border-left: 2px solid var(--plum);
+  }
+
+  /* ===== STYLE LABEL ===== */
+  .style-label {
+    position: fixed; bottom: 16px; right: 16px;
+    background: var(--amber); color: var(--bg); padding: 8px 16px;
+    border-radius: 6px; font-size: 12px; font-weight: 600;
+    font-family: var(--sans); z-index: 99;
+    box-shadow: 0 2px 12px var(--amber-glow);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-dot"></div>
+    <span class="logo-text">Agent <em>Recall</em></span>
+  </div>
+  <div class="hdr-r">
+    <span class="queue-badge">queue: <strong>3</strong></span>
+    <select class="project-select">
+      <option>all projects</option>
+      <option>agent-recall</option>
+      <option>muster</option>
+    </select>
+    <!-- Search -->
+    <button class="icon-btn" title="Search (⌘K)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    </button>
+    <!-- Settings (sliders icon) -->
+    <button class="icon-btn" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+    </button>
+    <!-- Theme toggle -->
+    <button class="icon-btn" onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light'" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
+</div>
+<hr class="header-divider">
+
+<div class="toolbar">
+  <div class="toolbar-left">
+    <button class="pill on">all<span class="count">2,847</span></button>
+    <button class="pill">observations<span class="count">1,924</span></button>
+    <button class="pill">summaries<span class="count">186</span></button>
+    <button class="pill">prompts<span class="count">737</span></button>
+  </div>
+  <div class="toolbar-right">
+    <div class="view-toggle">
+      <button class="on" title="Timeline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      </button>
+      <button title="By session">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="feed">
+
+  <!-- Expanded Observation -->
+  <div class="card">
+    <div class="card-meta">
+      <span class="badge obs">observation</span>
+      <span class="dot-sep">&bull;</span>
+      <span class="time">12s ago</span>
+    </div>
+    <div class="title">Worker Service Refactored to Orchestrator Pattern</div>
+    <div class="sub">Decomposed monolithic worker into domain-driven services with lazy initialization</div>
+    <div class="card-expand">
+      <p class="narrative">The worker service was refactored from a 2000-line monolith into an orchestrator that delegates to specialized domain services. Background initialization uses promise-based tracking with lazy SearchRoutes loading, enabling faster startup while maintaining full functionality.</p>
+      <ul class="facts">
+        <li>WorkerService now delegates to Infrastructure, Server, and Worker modules</li>
+        <li>SearchRoutes initialization deferred until MCP ready</li>
+        <li>Background initialization tracked via promise resolver pattern</li>
+      </ul>
+      <div class="tags">
+        <span class="tag">architecture</span>
+        <span class="tag">refactoring</span>
+        <span class="tag">worker-service</span>
+        <span class="tag">orchestrator</span>
+      </div>
+      <div class="files">
+        <span class="file"><span class="fdot m"></span>worker-service.ts</span>
+        <span class="file"><span class="fdot m"></span>Server.ts</span>
+        <span class="file"><span class="fdot r"></span>SearchRoutes.ts</span>
+        <span class="file"><span class="fdot r"></span>SessionManager.ts</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="card">
+    <div class="card-meta">
+      <span class="badge sum">summary</span>
+      <span class="dot-sep">&bull;</span>
+      <span class="time">2h ago</span>
+    </div>
+    <div class="title">Session #184 &mdash; agent-recall</div>
+    <div class="sub">Refactored worker architecture and fixed initialization race conditions</div>
+    <div class="quad">
+      <div class="q"><div class="q-label">Investigated</div><div class="q-text">Worker service initialization flow, background promise resolution, readiness endpoint behavior</div></div>
+      <div class="q"><div class="q-label">Learned</div><div class="q-text">Promise resolver pattern enables dual initialization tracking; SearchRoutes can be safely deferred</div></div>
+      <div class="q"><div class="q-label">Completed</div><div class="q-text">Extracted domain services, implemented lazy route loading, added error boundary for initialization</div></div>
+      <div class="q"><div class="q-label">Next Steps</div><div class="q-text">Add health check retry logic, implement graceful shutdown propagation to child services</div></div>
+    </div>
+  </div>
+
+  <!-- Collapsed Observation -->
+  <div class="card">
+    <div class="card-meta">
+      <span class="badge obs">observation</span>
+      <span class="dot-sep">&bull;</span>
+      <span class="time">2h ago</span>
+    </div>
+    <div class="title">SDKAgent Implements Event-Driven Query Loop</div>
+    <div class="sub">Observer-only pattern with tool restrictions for memory extraction</div>
+  </div>
+
+  <!-- Prompt -->
+  <div class="card">
+    <div class="card-meta">
+      <span class="badge pmt">prompt</span>
+      <span class="dot-sep">&bull;</span>
+      <span class="time">3h ago</span>
+    </div>
+    <div class="title">User Prompt #42</div>
+    <div class="prompt-text">Refactor the worker service into smaller domain services. Keep the orchestrator thin and delegate to specialized modules.</div>
+  </div>
+
+  <!-- Another collapsed -->
+  <div class="card">
+    <div class="card-meta">
+      <span class="badge obs">observation</span>
+      <span class="dot-sep">&bull;</span>
+      <span class="time">3h ago</span>
+    </div>
+    <div class="title">SessionManager Event-Driven Lifecycle with Database-First Persistence</div>
+    <div class="sub">Zero-latency queuing with auto-initialization on first observation</div>
+  </div>
+
+  <!-- One more for density feel -->
+  <div class="card">
+    <div class="card-meta">
+      <span class="badge obs">observation</span>
+      <span class="dot-sep">&bull;</span>
+      <span class="time">3h ago</span>
+    </div>
+    <div class="title">Dual Initialization State Tracking Pattern Located</div>
+    <div class="sub">Background init promise resolves independently from readiness endpoint state</div>
+  </div>
+
+</div>
+
+<div class="style-label">E &mdash; Dark Library (B+C)</div>
+
+<script>
+  // Filter pills
+  document.querySelectorAll('.pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.pill').forEach(p => p.classList.remove('on'));
+      pill.classList.add('on');
+    });
+  });
+  // View toggle
+  document.querySelectorAll('.view-toggle button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.view-toggle button').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+    });
+  });
+</script>
+
+</body>
+</html>

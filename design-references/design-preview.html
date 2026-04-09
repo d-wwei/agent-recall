@@ -1,0 +1,1783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Recall — Design Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ===== RESET ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ===== THEME TOKENS ===== */
+  :root, [data-theme="light"] {
+    --bg-primary: #faf9f7;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f3f1ed;
+    --bg-header: rgba(250, 249, 247, 0.85);
+    --bg-card: #ffffff;
+    --bg-card-hover: #f8f7f5;
+    --bg-overlay: rgba(0, 0, 0, 0.4);
+    --bg-input: #ffffff;
+    --bg-observation: #f0f6fb;
+    --bg-summary: #fdf8ef;
+    --bg-prompt: #f5f2fa;
+    --bg-stat: #f3f1ed;
+    --bg-code: #1a1916;
+
+    --border-primary: #e8e4dd;
+    --border-secondary: #ece9e3;
+    --border-card: #e8e4dd;
+    --border-observation: #bdd5ee;
+    --border-summary: #e8d5a8;
+    --border-prompt: #d4c4ea;
+    --border-active: #0969da;
+
+    --text-primary: #2b2520;
+    --text-secondary: #5a5248;
+    --text-tertiary: #8a8279;
+    --text-muted: #b0a89e;
+    --text-inverse: #faf9f7;
+    --text-code: #e8e2d8;
+    --text-link: #0969da;
+
+    --accent: #0969da;
+    --accent-hover: #0550ae;
+    --accent-subtle: rgba(9, 105, 218, 0.08);
+    --accent-observation: #0969da;
+    --accent-summary: #b8860b;
+    --accent-prompt: #7c3aed;
+    --accent-success: #16a34a;
+    --accent-error: #dc2626;
+
+    --badge-obs-bg: rgba(9, 105, 218, 0.1);
+    --badge-obs-text: #0550ae;
+    --badge-sum-bg: rgba(184, 134, 11, 0.1);
+    --badge-sum-text: #92690a;
+    --badge-prompt-bg: rgba(124, 58, 237, 0.1);
+    --badge-prompt-text: #6d28d9;
+
+    --shadow-sm: 0 1px 2px rgba(43, 37, 32, 0.04);
+    --shadow-md: 0 2px 8px rgba(43, 37, 32, 0.06);
+    --shadow-lg: 0 8px 24px rgba(43, 37, 32, 0.08);
+    --shadow-card: 0 1px 3px rgba(43, 37, 32, 0.04), 0 0 0 1px rgba(43, 37, 32, 0.06);
+
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+
+    --font-sans: 'DM Sans', -apple-system, sans-serif;
+    --font-mono: 'DM Mono', 'Monaco', 'Menlo', monospace;
+
+    --nav-indicator: #0969da;
+    --timeline-line: #e8e4dd;
+    --timeline-dot: #0969da;
+    --scrollbar-thumb: #d0cbc4;
+  }
+
+  [data-theme="dark"] {
+    --bg-primary: #141310;
+    --bg-secondary: #1c1b18;
+    --bg-tertiary: #222120;
+    --bg-header: rgba(20, 19, 16, 0.88);
+    --bg-card: #1c1b18;
+    --bg-card-hover: #252321;
+    --bg-overlay: rgba(0, 0, 0, 0.6);
+    --bg-input: #222120;
+    --bg-observation: #171f2a;
+    --bg-summary: #211e17;
+    --bg-prompt: #1c172a;
+    --bg-stat: #1c1b18;
+    --bg-code: #0d0c0a;
+
+    --border-primary: #2e2c28;
+    --border-secondary: #353330;
+    --border-card: #2e2c28;
+    --border-observation: #2a3a50;
+    --border-summary: #3a3020;
+    --border-prompt: #302840;
+    --border-active: #58a6ff;
+
+    --text-primary: #e0dbd4;
+    --text-secondary: #a8a198;
+    --text-tertiary: #706a60;
+    --text-muted: #504a40;
+    --text-inverse: #141310;
+    --text-code: #c8c0b4;
+    --text-link: #58a6ff;
+
+    --accent: #58a6ff;
+    --accent-hover: #79b8ff;
+    --accent-subtle: rgba(88, 166, 255, 0.08);
+    --accent-observation: #58a6ff;
+    --accent-summary: #d4a855;
+    --accent-prompt: #a78bfa;
+    --accent-success: #22c55e;
+    --accent-error: #ef4444;
+
+    --badge-obs-bg: rgba(88, 166, 255, 0.12);
+    --badge-obs-text: #79b8ff;
+    --badge-sum-bg: rgba(212, 168, 85, 0.12);
+    --badge-sum-text: #d4a855;
+    --badge-prompt-bg: rgba(167, 139, 250, 0.12);
+    --badge-prompt-text: #a78bfa;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.04);
+
+    --nav-indicator: #58a6ff;
+    --timeline-line: #2e2c28;
+    --timeline-dot: #58a6ff;
+    --scrollbar-thumb: #3a3834;
+  }
+
+  /* ===== BASE ===== */
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.55;
+    overflow-x: hidden;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+
+  /* ===== SCROLLBAR ===== */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+
+  /* ===== HEADER ===== */
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg-header);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border-primary);
+    padding: 0 32px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    width: 28px;
+    height: 28px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .logo svg { width: 16px; height: 16px; color: white; }
+  .logo-text {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+
+  .queue-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: var(--accent-error);
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  /* ===== NAV TABS ===== */
+  .nav-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+  }
+  .nav-tab {
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: none;
+    background: none;
+    font-family: var(--font-sans);
+    white-space: nowrap;
+  }
+  .nav-tab:hover {
+    color: var(--text-primary);
+    background: var(--accent-subtle);
+  }
+  .nav-tab.active {
+    color: var(--accent);
+    background: var(--accent-subtle);
+    font-weight: 600;
+  }
+
+  /* ===== HEADER RIGHT ===== */
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-success);
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2);
+    animation: pulse 2s ease infinite;
+  }
+  .status-dot.offline {
+    background: var(--accent-error);
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
+    animation: none;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .project-select {
+    padding: 5px 10px;
+    font-size: 12px;
+    font-family: var(--font-sans);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    outline: none;
+  }
+  .project-select:focus { border-color: var(--border-active); }
+
+  .search-shortcut {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: all 0.15s ease;
+  }
+  .search-shortcut:hover {
+    color: var(--text-secondary);
+    border-color: var(--border-active);
+  }
+  .search-shortcut kbd {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    padding: 1px 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    color: var(--text-tertiary);
+  }
+
+  .theme-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+  }
+  .theme-btn:hover { color: var(--text-primary); background: var(--accent-subtle); }
+  .theme-btn svg { width: 16px; height: 16px; }
+
+  /* ===== STATS BAR ===== */
+  .stats-bar {
+    display: flex;
+    gap: 1px;
+    padding: 16px 32px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-primary);
+  }
+  .stat-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+  }
+  .stat-item:first-child { border-radius: var(--radius-md) var(--radius-sm) var(--radius-sm) var(--radius-md); }
+  .stat-item:last-child { border-radius: var(--radius-sm) var(--radius-md) var(--radius-md) var(--radius-sm); }
+  .stat-item:not(:first-child):not(:last-child) { border-radius: var(--radius-sm); }
+  .stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+  .stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* ===== TYPE FILTER ===== */
+  .type-filter {
+    display: flex;
+    gap: 6px;
+    padding: 12px 32px;
+    border-bottom: 1px solid var(--border-primary);
+  }
+  .filter-pill {
+    padding: 5px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    background: none;
+    border: 1px solid var(--border-primary);
+    border-radius: 100px;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: all 0.15s ease;
+  }
+  .filter-pill:hover { border-color: var(--text-tertiary); color: var(--text-secondary); }
+  .filter-pill.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .filter-pill .count {
+    margin-left: 4px;
+    opacity: 0.7;
+  }
+
+  /* ===== MAIN CONTENT ===== */
+  .main { padding: 16px 32px 80px; max-width: 840px; margin: 0 auto; }
+
+  /* ===== CARDS ===== */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    margin-bottom: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    cursor: pointer;
+  }
+  .card:hover {
+    border-color: var(--border-secondary);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 18px;
+  }
+
+  .card-type-indicator {
+    width: 3px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    align-self: stretch;
+    min-height: 20px;
+  }
+  .card-type-indicator.observation { background: var(--accent-observation); }
+  .card-type-indicator.summary { background: var(--accent-summary); }
+  .card-type-indicator.prompt { background: var(--accent-prompt); }
+
+  .card-content { flex: 1; min-width: 0; }
+
+  .card-top-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .card-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .card-badge.observation { background: var(--badge-obs-bg); color: var(--badge-obs-text); }
+  .card-badge.summary { background: var(--badge-sum-bg); color: var(--badge-sum-text); }
+  .card-badge.prompt { background: var(--badge-prompt-bg); color: var(--badge-prompt-text); }
+
+  .card-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.4;
+    margin-bottom: 2px;
+  }
+  .card-subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
+
+  /* Card expanded area */
+  .card-expanded {
+    padding: 0 18px 16px;
+    padding-left: 33px; /* align with content after indicator */
+  }
+  .card-narrative {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 12px;
+  }
+
+  .card-facts {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+  .card-facts li {
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 5px 10px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    line-height: 1.4;
+  }
+  .card-facts li::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  /* Tags */
+  .card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 10px;
+  }
+  .tag {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--accent-subtle);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+  .tag:hover { background: var(--accent); color: white; }
+
+  /* File tags */
+  .card-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .file-tag {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .file-tag .dot { width: 5px; height: 5px; border-radius: 50%; }
+  .file-tag .dot.read { background: var(--text-muted); }
+  .file-tag .dot.modified { background: var(--accent-success); }
+
+  /* ===== SUMMARY CARD SPECIAL ===== */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 0 18px 16px;
+    padding-left: 33px;
+  }
+  .summary-quadrant {
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+  }
+  .summary-quadrant-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent-summary);
+    margin-bottom: 4px;
+  }
+  .summary-quadrant-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* ===== PROMPT CARD ===== */
+  .prompt-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: 0 18px 16px;
+    padding-left: 33px;
+    line-height: 1.5;
+  }
+
+  /* ===== SLIDE-IN ANIMATION ===== */
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .card.new { animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+  /* ===== VIEW LABEL (for preview) ===== */
+  .view-label {
+    text-align: center;
+    padding: 40px 32px 20px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+  }
+
+  /* ===== SEARCH VIEW ===== */
+  .search-container {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px;
+  }
+  .search-input-wrapper {
+    position: relative;
+    margin-bottom: 24px;
+  }
+  .search-input {
+    width: 100%;
+    padding: 14px 18px 14px 44px;
+    font-size: 15px;
+    font-family: var(--font-sans);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    color: var(--text-primary);
+    outline: none;
+    transition: all 0.15s ease;
+    box-shadow: var(--shadow-sm);
+  }
+  .search-input:focus {
+    border-color: var(--border-active);
+    box-shadow: var(--shadow-md), 0 0 0 3px var(--accent-subtle);
+  }
+  .search-input::placeholder { color: var(--text-muted); }
+  .search-icon {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    width: 18px;
+    height: 18px;
+  }
+
+  .search-filters {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .search-result {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    transition: all 0.12s ease;
+    cursor: pointer;
+  }
+  .search-result:hover {
+    border-color: var(--border-active);
+    box-shadow: var(--shadow-sm);
+  }
+  .search-result-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+  .search-result-snippet {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .search-result-snippet mark {
+    background: rgba(9, 105, 218, 0.15);
+    color: var(--accent);
+    border-radius: 2px;
+    padding: 0 2px;
+  }
+  [data-theme="dark"] .search-result-snippet mark {
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent);
+  }
+  .search-result-meta {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* ===== COMMAND PALETTE ===== */
+  .cmd-palette-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-overlay);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 20vh;
+  }
+  .cmd-palette {
+    width: 560px;
+    max-height: 420px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .cmd-palette-input {
+    padding: 16px 20px;
+    font-size: 15px;
+    font-family: var(--font-sans);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    outline: none;
+    width: 100%;
+  }
+  .cmd-palette-input::placeholder { color: var(--text-muted); }
+  .cmd-palette-results {
+    overflow-y: auto;
+    padding: 6px;
+    flex: 1;
+  }
+  .cmd-result {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background 0.1s ease;
+  }
+  .cmd-result:hover, .cmd-result.focused {
+    background: var(--accent-subtle);
+  }
+  .cmd-result-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .cmd-result-icon.obs { background: var(--badge-obs-bg); color: var(--badge-obs-text); }
+  .cmd-result-icon.sum { background: var(--badge-sum-bg); color: var(--badge-sum-text); }
+  .cmd-result-text { flex: 1; min-width: 0; }
+  .cmd-result-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .cmd-result-sub {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+  .cmd-palette-footer {
+    padding: 8px 16px;
+    border-top: 1px solid var(--border-primary);
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .cmd-palette-footer kbd {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    padding: 1px 5px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+  }
+
+  /* ===== SESSION TIMELINE ===== */
+  .timeline-container {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px;
+  }
+  .timeline {
+    position: relative;
+    padding-left: 28px;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    background: var(--timeline-line);
+    border-radius: 1px;
+  }
+
+  .timeline-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    margin-top: 24px;
+    position: relative;
+  }
+  .timeline-group-label:first-child { margin-top: 0; }
+
+  .session-card {
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    padding: 16px 18px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .session-card::before {
+    content: '';
+    position: absolute;
+    left: -24px;
+    top: 22px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    border: 2px solid var(--timeline-dot);
+  }
+  .session-card:hover {
+    border-color: var(--border-active);
+    box-shadow: var(--shadow-sm);
+  }
+  .session-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .session-project {
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--accent);
+    padding: 2px 7px;
+    background: var(--accent-subtle);
+    border-radius: 4px;
+  }
+  .session-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .session-summary-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 10px;
+  }
+  .session-metrics {
+    display: flex;
+    gap: 16px;
+  }
+  .session-metric {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .session-metric strong {
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ===== SETTINGS VIEW ===== */
+  .settings-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: calc(100vh - 56px);
+  }
+
+  .settings-preview {
+    background: var(--bg-code);
+    color: var(--text-code);
+    padding: 24px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    border-right: 1px solid var(--border-primary);
+  }
+  .settings-preview .comment { color: #6a6258; }
+  .settings-preview .key { color: #79b8ff; }
+  .settings-preview .value { color: #a8d8a8; }
+  .settings-preview .section-header {
+    color: #d4a855;
+    font-weight: 600;
+    margin-top: 16px;
+    margin-bottom: 4px;
+  }
+  .settings-preview .section-header:first-child { margin-top: 0; }
+  .settings-preview .dim { color: #4a4540; }
+
+  .settings-form {
+    padding: 24px 32px;
+    overflow-y: auto;
+  }
+  .settings-section {
+    margin-bottom: 28px;
+  }
+  .settings-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 16px;
+  }
+  .form-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .form-input {
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: var(--font-sans);
+    background: var(--bg-input);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .form-input:focus { border-color: var(--border-active); }
+
+  .range-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .range-input {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-primary);
+    outline: none;
+  }
+  .range-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg-secondary);
+    box-shadow: var(--shadow-sm);
+  }
+  .range-value {
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    min-width: 32px;
+    text-align: right;
+  }
+
+  .provider-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 16px;
+    background: var(--bg-tertiary);
+    padding: 3px;
+    border-radius: var(--radius-md);
+  }
+  .provider-tab {
+    flex: 1;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    border: none;
+    background: none;
+    color: var(--text-tertiary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: all 0.15s ease;
+  }
+  .provider-tab.active {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ===== LOGS DRAWER ===== */
+  .logs-drawer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 240px;
+    background: var(--bg-code);
+    border-top: 1px solid var(--border-primary);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+  }
+  .logs-drawer-handle {
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    cursor: ns-resize;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+  .logs-drawer-handle::before {
+    content: '';
+    width: 32px;
+    height: 3px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 2px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .logs-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .logs-filters {
+    display: flex;
+    gap: 4px;
+    padding: 6px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+  .log-filter-pill {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.4);
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    transition: all 0.1s;
+  }
+  .log-filter-pill.active { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.8); }
+  .log-filter-pill.error { color: #ef4444; }
+  .log-filter-pill.warn { color: #eab308; }
+  .log-filter-pill.info { color: #58a6ff; }
+
+  .logs-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 16px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .log-line { color: rgba(255,255,255,0.5); }
+  .log-line .log-ts { color: rgba(255,255,255,0.25); }
+  .log-line .log-level { font-weight: 600; }
+  .log-line .log-level.info { color: #58a6ff; }
+  .log-line .log-level.warn { color: #eab308; }
+  .log-line .log-level.error { color: #ef4444; }
+  .log-line .log-level.debug { color: rgba(255,255,255,0.3); }
+  .log-line .log-component { color: #a78bfa; }
+
+  /* ===== EMPTY STATE ===== */
+  .empty-state {
+    text-align: center;
+    padding: 60px 32px;
+  }
+  .empty-state-icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    color: var(--text-muted);
+    opacity: 0.5;
+  }
+  .empty-state-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .empty-state-text {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 768px) {
+    .header { padding: 0 16px; gap: 12px; }
+    .stats-bar { padding: 12px 16px; }
+    .main { padding: 12px 16px 80px; }
+    .search-container, .timeline-container { padding: 16px; }
+    .settings-container { grid-template-columns: 1fr; }
+    .settings-preview { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border-primary); }
+    .summary-grid { grid-template-columns: 1fr; }
+    .stat-value { font-size: 18px; }
+    .nav-tab { padding: 6px 10px; font-size: 12px; }
+  }
+
+  /* ===== SECTION DIVIDER ===== */
+  .section-divider {
+    border: none;
+    border-top: 2px dashed var(--border-primary);
+    margin: 48px 32px;
+  }
+
+  /* ===== CONSOLE TOGGLE ===== */
+  .console-toggle {
+    position: fixed;
+    bottom: 12px;
+    left: 12px;
+    width: 36px;
+    height: 36px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-tertiary);
+    z-index: 40;
+    box-shadow: var(--shadow-md);
+    transition: all 0.15s ease;
+  }
+  .console-toggle:hover { color: var(--text-primary); border-color: var(--border-active); }
+  .console-toggle svg { width: 16px; height: 16px; }
+</style>
+</head>
+<body>
+
+<!-- =============================== -->
+<!-- VIEW 1: MEMORY FEED             -->
+<!-- =============================== -->
+<div class="view-label">View 1 / 4 &mdash; Memory Feed (Main View)</div>
+
+<div class="header">
+  <div class="header-left">
+    <div class="logo" style="position:relative">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+      <span class="queue-badge">3</span>
+    </div>
+    <span class="logo-text">Agent Recall</span>
+  </div>
+
+  <nav class="nav-tabs">
+    <button class="nav-tab active">Feed</button>
+    <button class="nav-tab">Search</button>
+    <button class="nav-tab">Sessions</button>
+    <button class="nav-tab">Settings</button>
+  </nav>
+
+  <div class="header-right">
+    <div class="status-dot" title="Connected"></div>
+    <button class="search-shortcut">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      Search&hellip;
+      <kbd>&hairsp;&#8984;K&hairsp;</kbd>
+    </button>
+    <select class="project-select">
+      <option>All Projects</option>
+      <option>agent-recall</option>
+      <option>muster</option>
+    </select>
+    <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- Stats Bar -->
+<div class="stats-bar">
+  <div class="stat-item">
+    <span class="stat-value">2,847</span>
+    <span class="stat-label">Memories</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-value">186</span>
+    <span class="stat-label">Sessions</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-value">12</span>
+    <span class="stat-label">Projects</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-value">48 MB</span>
+    <span class="stat-label">Database</span>
+  </div>
+</div>
+
+<!-- Type Filter -->
+<div class="type-filter">
+  <button class="filter-pill active">All<span class="count">2,847</span></button>
+  <button class="filter-pill">Observations<span class="count">1,924</span></button>
+  <button class="filter-pill">Summaries<span class="count">186</span></button>
+  <button class="filter-pill">Prompts<span class="count">737</span></button>
+</div>
+
+<!-- Feed Cards -->
+<div class="main">
+
+  <!-- Observation Card (expanded) -->
+  <div class="card new">
+    <div class="card-header">
+      <div class="card-type-indicator observation"></div>
+      <div class="card-content">
+        <div class="card-top-row">
+          <span class="card-badge observation">Observation</span>
+          <span class="card-time">12 seconds ago</span>
+        </div>
+        <div class="card-title">Worker Service Refactored to Orchestrator Pattern</div>
+        <div class="card-subtitle">Decomposed monolithic worker into domain-driven services with lazy initialization</div>
+      </div>
+    </div>
+    <div class="card-expanded">
+      <p class="card-narrative">
+        The worker service was refactored from a 2000-line monolith into an orchestrator that delegates to specialized domain services. Background initialization uses promise-based tracking with lazy SearchRoutes loading, enabling faster startup while maintaining full functionality.
+      </p>
+      <ul class="card-facts">
+        <li>WorkerService now delegates to Infrastructure, Server, and Worker modules</li>
+        <li>SearchRoutes initialization deferred until MCP ready</li>
+        <li>Background initialization tracked via promise resolver pattern</li>
+      </ul>
+      <div class="card-tags">
+        <span class="tag">architecture</span>
+        <span class="tag">refactoring</span>
+        <span class="tag">worker-service</span>
+        <span class="tag">orchestrator</span>
+      </div>
+      <div class="card-files">
+        <span class="file-tag"><span class="dot modified"></span>worker-service.ts</span>
+        <span class="file-tag"><span class="dot modified"></span>Server.ts</span>
+        <span class="file-tag"><span class="dot read"></span>SearchRoutes.ts</span>
+        <span class="file-tag"><span class="dot read"></span>SessionManager.ts</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Card -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-type-indicator summary"></div>
+      <div class="card-content">
+        <div class="card-top-row">
+          <span class="card-badge summary">Summary</span>
+          <span class="card-time">2 hours ago</span>
+        </div>
+        <div class="card-title">Session #184 &mdash; agent-recall</div>
+        <div class="card-subtitle">Refactored worker architecture and fixed initialization race conditions</div>
+      </div>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-quadrant">
+        <div class="summary-quadrant-label">Investigated</div>
+        <div class="summary-quadrant-text">Worker service initialization flow, background promise resolution, readiness endpoint behavior during startup</div>
+      </div>
+      <div class="summary-quadrant">
+        <div class="summary-quadrant-label">Learned</div>
+        <div class="summary-quadrant-text">Promise resolver pattern enables dual initialization tracking; SearchRoutes can be safely deferred</div>
+      </div>
+      <div class="summary-quadrant">
+        <div class="summary-quadrant-label">Completed</div>
+        <div class="summary-quadrant-text">Extracted domain services, implemented lazy route loading, added error boundary for initialization</div>
+      </div>
+      <div class="summary-quadrant">
+        <div class="summary-quadrant-label">Next Steps</div>
+        <div class="summary-quadrant-text">Add health check retry logic, implement graceful shutdown propagation to child services</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Observation Card (collapsed) -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-type-indicator observation"></div>
+      <div class="card-content">
+        <div class="card-top-row">
+          <span class="card-badge observation">Observation</span>
+          <span class="card-time">2 hours ago</span>
+        </div>
+        <div class="card-title">SDKAgent Implements Event-Driven Query Loop</div>
+        <div class="card-subtitle">Observer-only pattern with tool restrictions for memory extraction</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Prompt Card -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-type-indicator prompt"></div>
+      <div class="card-content">
+        <div class="card-top-row">
+          <span class="card-badge prompt">Prompt</span>
+          <span class="card-time">3 hours ago</span>
+        </div>
+        <div class="card-title">User Prompt #42</div>
+      </div>
+    </div>
+    <div class="prompt-text">"Refactor the worker service into smaller domain services. Keep the orchestrator thin and delegate to specialized modules."</div>
+  </div>
+
+  <!-- Another collapsed observation -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-type-indicator observation"></div>
+      <div class="card-content">
+        <div class="card-top-row">
+          <span class="card-badge observation">Observation</span>
+          <span class="card-time">3 hours ago</span>
+        </div>
+        <div class="card-title">SessionManager Event-Driven Lifecycle with Database-First Persistence</div>
+        <div class="card-subtitle">Zero-latency queuing with auto-initialization on first observation</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- =============================== -->
+<!-- VIEW 2: SEARCH / RECALL         -->
+<!-- =============================== -->
+<hr class="section-divider">
+<div class="view-label">View 2 / 4 &mdash; Search / Recall</div>
+
+<div class="header" style="position:relative">
+  <div class="header-left">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+    </div>
+    <span class="logo-text">Agent Recall</span>
+  </div>
+  <nav class="nav-tabs">
+    <button class="nav-tab">Feed</button>
+    <button class="nav-tab active">Search</button>
+    <button class="nav-tab">Sessions</button>
+    <button class="nav-tab">Settings</button>
+  </nav>
+  <div class="header-right">
+    <div class="status-dot"></div>
+    <select class="project-select"><option>All Projects</option></select>
+    <button class="theme-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="search-container">
+  <div class="search-input-wrapper">
+    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input class="search-input" type="text" value="worker service initialization" placeholder="Search memories, sessions, files...">
+  </div>
+
+  <div class="search-filters">
+    <button class="filter-pill active">All</button>
+    <button class="filter-pill">Observations</button>
+    <button class="filter-pill">Sessions</button>
+    <button class="filter-pill">Prompts</button>
+    <select class="project-select" style="margin-left:auto"><option>Any time</option></select>
+  </div>
+
+  <!-- Search Results -->
+  <div class="search-result">
+    <div class="search-result-title">Worker Service Refactored to Orchestrator Pattern</div>
+    <div class="search-result-snippet">The <mark>worker service</mark> was refactored from a 2000-line monolith into an orchestrator that delegates to specialized domain services. Background <mark>initialization</mark> uses promise-based tracking...</div>
+    <div class="search-result-meta">
+      <span class="card-badge observation" style="font-size:9px">Observation</span>
+      <span>agent-recall</span>
+      <span>2 hours ago</span>
+    </div>
+  </div>
+
+  <div class="search-result">
+    <div class="search-result-title">Readiness Endpoint Returns 503 During Initialization</div>
+    <div class="search-result-snippet">The readiness check for the <mark>worker service</mark> returns HTTP 503 while background <mark>initialization</mark> is in progress, preventing premature health check passes...</div>
+    <div class="search-result-meta">
+      <span class="card-badge observation" style="font-size:9px">Observation</span>
+      <span>agent-recall</span>
+      <span>Dec 20</span>
+    </div>
+  </div>
+
+  <div class="search-result">
+    <div class="search-result-title">Session #180 &mdash; Worker Architecture Overhaul</div>
+    <div class="search-result-snippet">Investigated <mark>worker service</mark> startup sequence and <mark>initialization</mark> promise resolution. Confirmed dual state tracking pattern for background init...</div>
+    <div class="search-result-meta">
+      <span class="card-badge summary" style="font-size:9px">Summary</span>
+      <span>agent-recall</span>
+      <span>Dec 20</span>
+    </div>
+  </div>
+
+  <div class="search-result">
+    <div class="search-result-title">User Prompt #38</div>
+    <div class="search-result-snippet">"Check how the <mark>worker service initialization</mark> handles errors. Does the readiness endpoint properly reflect the init state?"</div>
+    <div class="search-result-meta">
+      <span class="card-badge prompt" style="font-size:9px">Prompt</span>
+      <span>agent-recall</span>
+      <span>Dec 20</span>
+    </div>
+  </div>
+</div>
+
+<!-- Command Palette Overlay (shown inline for preview) -->
+<div style="padding: 32px; max-width: 640px; margin: 0 auto;">
+  <div class="view-label" style="padding:0 0 16px">&#8984;K Command Palette</div>
+  <div class="cmd-palette" style="position:relative">
+    <input class="cmd-palette-input" value="worker init" placeholder="Search memories...">
+    <div class="cmd-palette-results">
+      <div class="cmd-result focused">
+        <div class="cmd-result-icon obs">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        </div>
+        <div class="cmd-result-text">
+          <div class="cmd-result-title">Worker Service Refactored to Orchestrator Pattern</div>
+          <div class="cmd-result-sub">Observation &middot; agent-recall &middot; 2 hours ago</div>
+        </div>
+      </div>
+      <div class="cmd-result">
+        <div class="cmd-result-icon obs">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        </div>
+        <div class="cmd-result-text">
+          <div class="cmd-result-title">Readiness Endpoint Returns 503 During Initialization</div>
+          <div class="cmd-result-sub">Observation &middot; agent-recall &middot; Dec 20</div>
+        </div>
+      </div>
+      <div class="cmd-result">
+        <div class="cmd-result-icon sum">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+        </div>
+        <div class="cmd-result-text">
+          <div class="cmd-result-title">Session #180 &mdash; Worker Architecture Overhaul</div>
+          <div class="cmd-result-sub">Summary &middot; agent-recall &middot; Dec 20</div>
+        </div>
+      </div>
+    </div>
+    <div class="cmd-palette-footer">
+      <span><kbd>&uarr;</kbd> <kbd>&darr;</kbd> Navigate</span>
+      <span><kbd>&#9166;</kbd> Open</span>
+      <span><kbd>Esc</kbd> Close</span>
+    </div>
+  </div>
+</div>
+
+<!-- =============================== -->
+<!-- VIEW 3: SESSION TIMELINE         -->
+<!-- =============================== -->
+<hr class="section-divider">
+<div class="view-label">View 3 / 4 &mdash; Session Timeline</div>
+
+<div class="header" style="position:relative">
+  <div class="header-left">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+    </div>
+    <span class="logo-text">Agent Recall</span>
+  </div>
+  <nav class="nav-tabs">
+    <button class="nav-tab">Feed</button>
+    <button class="nav-tab">Search</button>
+    <button class="nav-tab active">Sessions</button>
+    <button class="nav-tab">Settings</button>
+  </nav>
+  <div class="header-right">
+    <div class="status-dot"></div>
+    <button class="search-shortcut">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      Search&hellip;
+      <kbd>&hairsp;&#8984;K&hairsp;</kbd>
+    </button>
+    <select class="project-select"><option>All Projects</option></select>
+    <button class="theme-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="timeline-container">
+  <div class="timeline">
+    <div class="timeline-group-label">Today</div>
+
+    <div class="session-card">
+      <div class="session-card-header">
+        <span class="session-project">agent-recall</span>
+        <span class="session-time">10:32 AM &ndash; 12:15 PM</span>
+      </div>
+      <div class="session-summary-text">Refactored worker service into orchestrator pattern with domain-driven services. Fixed initialization race conditions and readiness endpoint.</div>
+      <div class="session-metrics">
+        <span class="session-metric"><strong>8</strong> prompts</span>
+        <span class="session-metric"><strong>14</strong> observations</span>
+        <span class="session-metric"><strong>1</strong> summary</span>
+      </div>
+    </div>
+
+    <div class="session-card">
+      <div class="session-card-header">
+        <span class="session-project">muster</span>
+        <span class="session-time">8:15 AM &ndash; 9:48 AM</span>
+      </div>
+      <div class="session-summary-text">Implemented database schema for task management. Created migration scripts and seed data. Set up Zod validation for API endpoints.</div>
+      <div class="session-metrics">
+        <span class="session-metric"><strong>5</strong> prompts</span>
+        <span class="session-metric"><strong>9</strong> observations</span>
+        <span class="session-metric"><strong>1</strong> summary</span>
+      </div>
+    </div>
+
+    <div class="timeline-group-label">Yesterday</div>
+
+    <div class="session-card">
+      <div class="session-card-header">
+        <span class="session-project">agent-recall</span>
+        <span class="session-time">3:00 PM &ndash; 6:05 PM</span>
+      </div>
+      <div class="session-summary-text">Investigated SDKAgent event-driven query loop. Added tool restrictions for memory extraction. Verified observer-only pattern works correctly.</div>
+      <div class="session-metrics">
+        <span class="session-metric"><strong>12</strong> prompts</span>
+        <span class="session-metric"><strong>22</strong> observations</span>
+        <span class="session-metric"><strong>1</strong> summary</span>
+      </div>
+    </div>
+
+    <div class="session-card">
+      <div class="session-card-header">
+        <span class="session-project">agent-recall</span>
+        <span class="session-time">10:00 AM &ndash; 11:30 AM</span>
+      </div>
+      <div class="session-summary-text">Configured Gemini Agent with billing status support. Refactored rate limiting logic for conditional application based on provider.</div>
+      <div class="session-metrics">
+        <span class="session-metric"><strong>4</strong> prompts</span>
+        <span class="session-metric"><strong>7</strong> observations</span>
+        <span class="session-metric"><strong>1</strong> summary</span>
+      </div>
+    </div>
+
+    <div class="timeline-group-label">Dec 28</div>
+
+    <div class="session-card">
+      <div class="session-card-header">
+        <span class="session-project">agent-recall</span>
+        <span class="session-time">9:55 PM &ndash; 11:00 PM</span>
+      </div>
+      <div class="session-summary-text">Session ID field rename across all agents. Verified SDKAgent resume logic checks for different memory vs content session IDs.</div>
+      <div class="session-metrics">
+        <span class="session-metric"><strong>6</strong> prompts</span>
+        <span class="session-metric"><strong>11</strong> observations</span>
+        <span class="session-metric"><strong>1</strong> summary</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =============================== -->
+<!-- VIEW 4: SETTINGS                 -->
+<!-- =============================== -->
+<hr class="section-divider">
+<div class="view-label">View 4 / 4 &mdash; Settings (Terminal Preview + Config)</div>
+
+<div class="header" style="position:relative">
+  <div class="header-left">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+    </div>
+    <span class="logo-text">Agent Recall</span>
+  </div>
+  <nav class="nav-tabs">
+    <button class="nav-tab">Feed</button>
+    <button class="nav-tab">Search</button>
+    <button class="nav-tab">Sessions</button>
+    <button class="nav-tab active">Settings</button>
+  </nav>
+  <div class="header-right">
+    <div class="status-dot"></div>
+    <button class="theme-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="settings-container">
+  <!-- Left: Terminal Preview -->
+  <div class="settings-preview">
+    <div class="section-header"># Agent Recall &mdash; Context Injection Preview</div>
+    <div class="comment">## Injected at session start based on current settings</div>
+    <br>
+    <div class="section-header">&#9632; Recent Observations (showing 25 of 2,847)</div>
+    <div><span class="dim">---</span></div>
+    <div><span class="key">title:</span> <span class="value">Worker Service Refactored to Orchestrator Pattern</span></div>
+    <div><span class="key">type:</span> refactor</div>
+    <div><span class="key">project:</span> agent-recall</div>
+    <div><span class="key">narrative:</span> <span class="value">The worker service was refactored from a 2000-line</span></div>
+    <div><span class="value">&nbsp;&nbsp;monolith into an orchestrator that delegates to specialized</span></div>
+    <div><span class="value">&nbsp;&nbsp;domain services...</span></div>
+    <div><span class="key">facts:</span></div>
+    <div>&nbsp;&nbsp;<span class="value">- WorkerService delegates to Infrastructure, Server, Worker</span></div>
+    <div>&nbsp;&nbsp;<span class="value">- SearchRoutes initialization deferred until MCP ready</span></div>
+    <div><span class="key">files_modified:</span> <span class="value">worker-service.ts, Server.ts</span></div>
+    <div><span class="key">concepts:</span> <span class="value">architecture, refactoring, orchestrator</span></div>
+    <div><span class="dim">---</span></div>
+    <br>
+    <div><span class="key">title:</span> <span class="value">SDKAgent Event-Driven Query Loop</span></div>
+    <div><span class="key">type:</span> discovery</div>
+    <div><span class="key">project:</span> agent-recall</div>
+    <div><span class="key">narrative:</span> <span class="value">Observer-only pattern with tool restrictions...</span></div>
+    <div><span class="dim">---</span></div>
+    <br>
+    <div class="section-header">&#9632; Last Session Summary</div>
+    <div><span class="key">investigated:</span> <span class="value">Worker service initialization flow...</span></div>
+    <div><span class="key">learned:</span> <span class="value">Promise resolver pattern enables dual tracking...</span></div>
+    <div><span class="key">completed:</span> <span class="value">Extracted domain services, lazy route loading...</span></div>
+    <div><span class="key">next_steps:</span> <span class="value">Health check retry, graceful shutdown...</span></div>
+    <br>
+    <div class="comment">## Token estimate: ~3,200 tokens injected</div>
+  </div>
+
+  <!-- Right: Settings Form -->
+  <div class="settings-form">
+    <div class="settings-section">
+      <div class="settings-section-title">Context Loading</div>
+      <div class="form-row">
+        <div class="form-label">Recent Observations</div>
+        <div class="range-row">
+          <input type="range" class="range-input" min="1" max="200" value="25">
+          <span class="range-value">25</span>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-label">Session Summaries</div>
+        <div class="range-row">
+          <input type="range" class="range-input" min="1" max="50" value="5">
+          <span class="range-value">5</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Display</div>
+      <div class="form-row">
+        <div class="form-label">Default Field</div>
+        <select class="form-input">
+          <option>Narrative + Facts</option>
+          <option>Narrative only</option>
+          <option>Facts only</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">AI Provider</div>
+      <div class="provider-tabs">
+        <button class="provider-tab active">Claude</button>
+        <button class="provider-tab">Gemini</button>
+        <button class="provider-tab">OpenRouter</button>
+      </div>
+      <div class="form-row">
+        <div class="form-label">Model</div>
+        <select class="form-input">
+          <option>claude-sonnet-4-5-20250514</option>
+          <option>claude-haiku-4-5-20251001</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Worker</div>
+      <div class="form-row">
+        <div class="form-label">Port</div>
+        <input type="text" class="form-input" value="37777">
+      </div>
+      <div class="form-row">
+        <div class="form-label">Host</div>
+        <input type="text" class="form-input" value="localhost">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =============================== -->
+<!-- LOGS DRAWER PREVIEW              -->
+<!-- =============================== -->
+<hr class="section-divider">
+<div class="view-label">Global Feature &mdash; Console / Logs Drawer</div>
+
+<div style="position:relative; height: 260px; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); overflow:hidden; margin: 0 32px 48px;">
+  <div class="logs-drawer" style="position:absolute">
+    <div class="logs-drawer-handle">
+      <span class="logs-title">Console</span>
+      <span style="font-size:11px; color:rgba(255,255,255,0.3)">142 entries</span>
+    </div>
+    <div class="logs-filters">
+      <button class="log-filter-pill active">ALL</button>
+      <button class="log-filter-pill active info">INFO</button>
+      <button class="log-filter-pill warn">WARN</button>
+      <button class="log-filter-pill error">ERROR</button>
+      <button class="log-filter-pill">DEBUG</button>
+      <span style="width:1px; background:rgba(255,255,255,0.1); margin:0 4px"></span>
+      <button class="log-filter-pill active">HOOK</button>
+      <button class="log-filter-pill active">WORKER</button>
+      <button class="log-filter-pill">SDK</button>
+      <button class="log-filter-pill">DB</button>
+      <button class="log-filter-pill">SESSION</button>
+    </div>
+    <div class="logs-content">
+      <div class="log-line"><span class="log-ts">12:15:03</span> <span class="log-level info">INFO</span> <span class="log-component">[WORKER]</span> Session #186 completed, 14 observations processed</div>
+      <div class="log-line"><span class="log-ts">12:15:02</span> <span class="log-level info">INFO</span> <span class="log-component">[SDK]</span> Summary generated for session memory_abc123</div>
+      <div class="log-line"><span class="log-ts">12:14:58</span> <span class="log-level info">INFO</span> <span class="log-component">[HOOK]</span> PostToolUse: observation queued (pending: 0)</div>
+      <div class="log-line"><span class="log-ts">12:14:55</span> <span class="log-level warn">WARN</span> <span class="log-component">[SESSION]</span> Slow observation processing: 2.3s (threshold: 2s)</div>
+      <div class="log-line"><span class="log-ts">12:14:50</span> <span class="log-level info">INFO</span> <span class="log-component">[WORKER]</span> Observation #2847 stored successfully</div>
+      <div class="log-line"><span class="log-ts">12:14:48</span> <span class="log-level debug">DEBUG</span> <span class="log-component">[DB]</span> INSERT INTO observations VALUES (...)</div>
+      <div class="log-line"><span class="log-ts">12:14:45</span> <span class="log-level info">INFO</span> <span class="log-component">[HOOK]</span> PostToolUse: observation queued (pending: 1)</div>
+      <div class="log-line"><span class="log-ts">12:14:30</span> <span class="log-level info">INFO</span> <span class="log-component">[WORKER]</span> SSE broadcast: new_observation to 1 client</div>
+    </div>
+  </div>
+</div>
+
+<!-- Theme Toggle Script -->
+<script>
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+  }
+  // Make nav tabs clickable for demo
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      tab.closest('.nav-tabs').querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+    });
+  });
+  // Make filter pills clickable
+  document.querySelectorAll('.filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      pill.closest('.type-filter, .search-filters').querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+    });
+  });
+  // Make provider tabs clickable
+  document.querySelectorAll('.provider-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      tab.closest('.provider-tabs').querySelectorAll('.provider-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+    });
+  });
+  // Range slider live value
+  document.querySelectorAll('.range-input').forEach(input => {
+    input.addEventListener('input', () => {
+      input.closest('.range-row').querySelector('.range-value').textContent = input.value;
+    });
+  });
+</script>
+
+</body>
+</html>

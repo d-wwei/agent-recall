@@ -47,6 +47,7 @@ export class MigrationRunner {
     this.addObservationPhase2Fields(); // migration 33
     this.createEntitiesTable(); // migration 34
     this.createFactsTable(); // migration 35
+    this.createAgentDiaryTable(); // migration 36
   }
 
   /**
@@ -1308,5 +1309,28 @@ export class MigrationRunner {
     `);
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(35, new Date().toISOString());
+  }
+
+  /**
+   * Create agent_diary table for session-scoped diary entries (migration 36)
+   * Stores agent diary entries scoped by project and memory session.
+   */
+  private createAgentDiaryTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(36);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_diary (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_session_id TEXT,
+        project TEXT,
+        entry TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_diary_project ON agent_diary(project);
+      CREATE INDEX IF NOT EXISTS idx_diary_session ON agent_diary(memory_session_id);
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(36, new Date().toISOString());
   }
 }

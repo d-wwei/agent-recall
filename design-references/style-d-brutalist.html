@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Style D — Brutalist Data</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg-card: #ffffff;
+    --bg-alt: #f5f5f5;
+    --border: #000000;
+    --border-thin: #e0e0e0;
+    --text-1: #000000;
+    --text-2: #444444;
+    --text-3: #888888;
+    --text-4: #cccccc;
+    --pop: #7c3aed;
+    --pop-subtle: rgba(124,58,237,0.06);
+    --amber: #d97706;
+    --amber-subtle: rgba(217,119,6,0.06);
+    --cyan: #0891b2;
+    --cyan-subtle: rgba(8,145,178,0.06);
+    --green: #16a34a;
+    --red: #dc2626;
+    --sans: 'Instrument Sans', -apple-system, sans-serif;
+    --mono: 'Space Mono', monospace;
+  }
+
+  [data-theme="dark"] {
+    --bg: #0a0a0a;
+    --bg-card: #0a0a0a;
+    --bg-alt: #141414;
+    --border: #ffffff;
+    --border-thin: #2a2a2a;
+    --text-1: #ffffff;
+    --text-2: #bbbbbb;
+    --text-3: #777777;
+    --text-4: #333333;
+    --pop: #a78bfa;
+    --pop-subtle: rgba(167,139,250,0.1);
+    --amber: #fbbf24;
+    --amber-subtle: rgba(251,191,36,0.08);
+    --cyan: #22d3ee;
+    --cyan-subtle: rgba(34,211,238,0.08);
+    --green: #22c55e;
+    --red: #ef4444;
+  }
+
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body { font-family: var(--sans); background: var(--bg); color: var(--text-1); line-height: 1.5; transition: background .2s, color .2s; }
+
+  .header {
+    border-bottom: 3px solid var(--border);
+    padding: 0 24px; height: 56px;
+    display: flex; align-items: center; gap: 0;
+  }
+  .logo {
+    font-family: var(--mono); font-size: 14px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    padding-right: 24px; border-right: 3px solid var(--border);
+    height: 100%; display: flex; align-items: center;
+  }
+  .nav { display: flex; height: 100%; }
+  .nav a {
+    padding: 0 18px; font-size: 12px; font-weight: 700; color: var(--text-3);
+    text-decoration: none; text-transform: uppercase; letter-spacing: .1em;
+    display: flex; align-items: center;
+    border-right: 1px solid var(--border-thin);
+    transition: all .1s;
+  }
+  .nav a:hover { background: var(--bg-alt); color: var(--text-1); }
+  .nav a.on { background: var(--pop); color: white; }
+
+  .hdr-r {
+    margin-left: auto; display: flex; align-items: center; gap: 12px;
+    height: 100%; padding-left: 16px;
+  }
+  .status-bar {
+    font-family: var(--mono); font-size: 11px; color: var(--text-3);
+    display: flex; gap: 12px;
+  }
+  .status-bar .live { color: var(--green); font-weight: 700; }
+  .theme-btn {
+    width: 32px; height: 32px; border: 2px solid var(--border); background: none;
+    color: var(--text-1); cursor: pointer; display: flex; align-items: center;
+    justify-content: center; transition: all .1s;
+  }
+  .theme-btn:hover { background: var(--pop); color: white; border-color: var(--pop); }
+  .theme-btn svg { width: 14px; height: 14px; }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-bottom: 3px solid var(--border);
+  }
+  .stat {
+    padding: 16px 20px; text-align: center;
+    border-right: 1px solid var(--border-thin);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-n {
+    font-family: var(--mono); font-size: 28px; font-weight: 700;
+    color: var(--text-1); line-height: 1;
+  }
+  .stat-l {
+    font-size: 10px; font-weight: 700; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: .12em; margin-top: 2px;
+  }
+
+  .filters {
+    display: flex; border-bottom: 1px solid var(--border-thin);
+  }
+  .pill {
+    padding: 8px 18px; font-size: 11px; font-weight: 700; color: var(--text-3);
+    border: none; border-right: 1px solid var(--border-thin);
+    background: none; cursor: pointer; font-family: var(--sans);
+    text-transform: uppercase; letter-spacing: .08em; transition: all .1s;
+  }
+  .pill:hover { background: var(--bg-alt); color: var(--text-1); }
+  .pill.on { background: var(--text-1); color: var(--bg); }
+
+  .feed { max-width: 100%; padding: 0; }
+
+  .card {
+    border-bottom: 1px solid var(--border-thin);
+    display: grid; grid-template-columns: 4px 1fr;
+    transition: background .1s;
+  }
+  .card:hover { background: var(--bg-alt); }
+
+  .bar { background: var(--text-4); }
+  .bar.obs { background: var(--pop); }
+  .bar.sum { background: var(--amber); }
+  .bar.pmt { background: var(--cyan); }
+
+  .card-inner { padding: 16px 24px; }
+  .card-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .badge {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em;
+    padding: 2px 8px; border: 2px solid;
+  }
+  .badge.obs { border-color: var(--pop); color: var(--pop); }
+  .badge.sum { border-color: var(--amber); color: var(--amber); }
+  .badge.pmt { border-color: var(--cyan); color: var(--cyan); }
+  .time { font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+
+  .title { font-size: 16px; font-weight: 700; color: var(--text-1); line-height: 1.3; }
+  .sub { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+
+  .card-expand { padding: 0 24px 16px; }
+  .narrative { font-size: 13px; color: var(--text-2); line-height: 1.65; margin-bottom: 12px; }
+
+  .facts { list-style: none; margin-bottom: 12px; }
+  .facts li {
+    font-size: 12px; color: var(--text-2); padding: 4px 10px; line-height: 1.4;
+    border-left: 3px solid var(--pop); margin-bottom: 2px;
+    background: var(--pop-subtle);
+  }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .tag {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    padding: 2px 8px; background: var(--text-1); color: var(--bg);
+    text-transform: uppercase; letter-spacing: .04em;
+    cursor: pointer; transition: all .1s;
+  }
+  .tag:hover { background: var(--pop); }
+
+  .files { display: flex; flex-wrap: wrap; gap: 4px; }
+  .file {
+    font-family: var(--mono); font-size: 10px; padding: 2px 8px;
+    border: 1px solid var(--border-thin); color: var(--text-2);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .fdot { width: 6px; height: 6px; }
+  .fdot.r { background: var(--text-4); }
+  .fdot.m { background: var(--green); }
+
+  .quad { display: grid; grid-template-columns: 1fr 1fr; gap: 0; padding: 0 24px 16px; border: none; }
+  .q {
+    padding: 12px 14px; border: 1px solid var(--border-thin);
+    margin: -0.5px;
+  }
+  .q-label {
+    font-family: var(--mono); font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em;
+    color: var(--amber); margin-bottom: 4px;
+  }
+  .q-text { font-size: 12px; color: var(--text-2); line-height: 1.5; }
+
+  .prompt-text {
+    font-family: var(--mono); font-size: 13px; color: var(--cyan);
+    padding: 0 24px 16px; line-height: 1.6;
+  }
+  .prompt-text::before { content: '$ '; color: var(--text-4); }
+
+  .style-label {
+    position: fixed; bottom: 16px; right: 16px;
+    background: var(--text-1); color: var(--bg); padding: 8px 16px;
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em; z-index: 99;
+    border: 3px solid var(--pop);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Agent Recall</div>
+  <nav class="nav">
+    <a href="#" class="on">Feed</a><a href="#">Search</a><a href="#">Sessions</a><a href="#">Settings</a>
+  </nav>
+  <div class="hdr-r">
+    <div class="status-bar">
+      <span class="live">LIVE</span>
+      <span>Q:3</span>
+    </div>
+    <button class="theme-btn" onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="stat-n">2,847</div><div class="stat-l">Memories</div></div>
+  <div class="stat"><div class="stat-n">186</div><div class="stat-l">Sessions</div></div>
+  <div class="stat"><div class="stat-n">12</div><div class="stat-l">Projects</div></div>
+  <div class="stat"><div class="stat-n">48MB</div><div class="stat-l">Database</div></div>
+</div>
+
+<div class="filters">
+  <button class="pill on">All</button>
+  <button class="pill">Observations</button>
+  <button class="pill">Summaries</button>
+  <button class="pill">Prompts</button>
+</div>
+
+<div class="feed">
+  <div class="card">
+    <div class="bar obs"></div>
+    <div class="card-inner">
+      <div class="card-meta"><span class="badge obs">OBS</span><span class="time">12s ago</span></div>
+      <div class="title">Worker Service Refactored to Orchestrator Pattern</div>
+      <div class="sub">Decomposed monolithic worker into domain-driven services</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="bar obs"></div>
+    <div>
+      <div class="card-inner">
+        <div class="card-meta"><span class="badge obs">OBS</span><span class="time">12s ago</span></div>
+        <div class="title">Worker Service Refactored to Orchestrator Pattern</div>
+        <div class="sub">Decomposed monolithic worker into domain-driven services</div>
+      </div>
+      <div class="card-expand">
+        <p class="narrative">The worker service was refactored from a 2000-line monolith into an orchestrator that delegates to specialized domain services. Background initialization uses promise-based tracking with lazy SearchRoutes loading.</p>
+        <ul class="facts">
+          <li>WorkerService now delegates to Infrastructure, Server, Worker modules</li>
+          <li>SearchRoutes initialization deferred until MCP ready</li>
+          <li>Background initialization tracked via promise resolver pattern</li>
+        </ul>
+        <div class="tags"><span class="tag">architecture</span><span class="tag">refactoring</span><span class="tag">worker-service</span></div>
+        <div class="files">
+          <span class="file"><span class="fdot m"></span>worker-service.ts</span>
+          <span class="file"><span class="fdot m"></span>Server.ts</span>
+          <span class="file"><span class="fdot r"></span>SearchRoutes.ts</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="bar sum"></div>
+    <div>
+      <div class="card-inner">
+        <div class="card-meta"><span class="badge sum">SUM</span><span class="time">2h ago</span></div>
+        <div class="title">Session #184 &mdash; agent-recall</div>
+        <div class="sub">Refactored worker architecture, fixed initialization race conditions</div>
+      </div>
+      <div class="quad">
+        <div class="q"><div class="q-label">Investigated</div><div class="q-text">Worker service initialization flow, background promise resolution</div></div>
+        <div class="q"><div class="q-label">Learned</div><div class="q-text">Promise resolver pattern enables dual initialization tracking</div></div>
+        <div class="q"><div class="q-label">Completed</div><div class="q-text">Extracted domain services, implemented lazy route loading</div></div>
+        <div class="q"><div class="q-label">Next</div><div class="q-text">Health check retry logic, graceful shutdown propagation</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="bar obs"></div>
+    <div class="card-inner">
+      <div class="card-meta"><span class="badge obs">OBS</span><span class="time">2h ago</span></div>
+      <div class="title">SDKAgent Implements Event-Driven Query Loop</div>
+      <div class="sub">Observer-only pattern with tool restrictions for memory extraction</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="bar pmt"></div>
+    <div>
+      <div class="card-inner">
+        <div class="card-meta"><span class="badge pmt">PMT</span><span class="time">3h ago</span></div>
+        <div class="title">Prompt #42</div>
+      </div>
+      <div class="prompt-text">Refactor the worker service into smaller domain services. Keep the orchestrator thin and delegate to specialized modules.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="bar obs"></div>
+    <div class="card-inner">
+      <div class="card-meta"><span class="badge obs">OBS</span><span class="time">3h ago</span></div>
+      <div class="title">SessionManager Event-Driven Lifecycle with Database-First Persistence</div>
+      <div class="sub">Zero-latency queuing with auto-initialization on first observation</div>
+    </div>
+  </div>
+</div>
+
+<div class="style-label">D &mdash; Brutalist Data</div>
+</body>
+</html>

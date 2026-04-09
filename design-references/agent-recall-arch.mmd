@@ -1,0 +1,55 @@
+graph LR
+    H1["🟢 会话开始<br/>注入人格+上下文<br/>恢复未完成任务"] --> PS["👤 人格服务<br/>全局+项目作用域"]
+    H1 --> RS["🔄 任务恢复<br/>活跃任务追踪<br/>中断任务栈"]
+    H2["📨 用户提交提示<br/>追踪用户意图"] --> API["⚡ Worker HTTP API<br/>异步处理+SSE推送<br/>端口 37777"]
+    H3["🔧 工具调用后<br/>捕获工具输出"] --> API
+    H4["📋 摘要生成<br/>AI驱动提取"] --> AG["🤖 AI代理<br/>Claude SDK<br/>结构化提取"]
+    H5["🔴 会话结束<br/>写入总结"] --> SA["📦 session_archives<br/>可搜索+标签"]
+
+    AG -->|结构化观测| OB["📊 observations 表<br/>标题/叙述/事实/概念<br/>discovery_tokens ROI<br/>FTS5 全文索引"]
+    AG -->|总结| SS["📝 session_summaries<br/>请求/调查/学到<br/>完成/下一步"]
+    PS --> AP["🪪 agent_profiles<br/>灵魂/用户/风格/工作流"]
+    RS --> AT["📌 active_tasks<br/>任务名/状态/进度"]
+
+    OB -->|批量同步| CS["🔗 ChromaSync"]
+    SS -->|批量同步| CS
+    CS --> NV["🧠 叙述向量"]
+    CS --> FV["📋 事实向量"]
+    CS --> SV["📝 总结向量"]
+
+    OB --> OC["⚖️ 观测编译器<br/>过量取2倍候选"]
+    SS --> OC
+    OC --> RW["⏱️ 新近度权重<br/>7天线性衰减<br/>1.0 → 0.0"]
+    OC --> DW["📏 丰富度权重<br/>标题+0.1 事实+0.1<br/>概念+0.05 叙述+0.1"]
+    RW --> SC["🏆 最终得分<br/>= 新近度 + 丰富度<br/>丰富的昨天 &gt; 空的刚才"]
+    DW --> SC
+    SC --> TL["📅 时间线构建<br/>按日期分组显示"]
+    OC --> TC["💰 Token计算器<br/>发现成本 vs 读取成本<br/>ROI 节省率"]
+
+    TL --> CI["💉 上下文注入<br/>人格+任务+时间线<br/>+总结+上次对话"]
+    TC --> CI
+    PS --> CI
+
+    SM["🔎 搜索管理器"] -->|FTS5 全文| OB
+    SM -->|语义搜索| NV
+    SM --> UI["🖥️ Viewer UI<br/>React SPA :37777"]
+    CI -->|SessionStart| H1
+    CI --> CU["📂 Cursor集成<br/>.cursor/context.md"]
+
+    style H1 fill:#e8f5e9
+    style H2 fill:#e8f5e9
+    style H3 fill:#e8f5e9
+    style H4 fill:#e8f5e9
+    style H5 fill:#e8f5e9
+    style OB fill:#fff3e0
+    style SS fill:#fff3e0
+    style AP fill:#fff3e0
+    style AT fill:#fff3e0
+    style SA fill:#fff3e0
+    style NV fill:#e3f2fd
+    style FV fill:#e3f2fd
+    style SV fill:#e3f2fd
+    style SC fill:#fce4ec
+    style CI fill:#f3e5f5
+    style SM fill:#fce4ec
+    style UI fill:#f3e5f5
