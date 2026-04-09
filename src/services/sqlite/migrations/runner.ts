@@ -43,6 +43,7 @@ export class MigrationRunner {
     this.createObservationBufferTable();
     this.addObservationPhase1Fields();
     this.createSyncStateTable(); // migration 31
+    this.createCompiledKnowledgeTable(); // migration 32
   }
 
   /**
@@ -1186,5 +1187,35 @@ export class MigrationRunner {
     `);
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(31, new Date().toISOString());
+  }
+
+  /**
+   * Create compiled_knowledge table for persistent compiled knowledge entries (migration 32)
+   */
+  private createCompiledKnowledgeTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(32);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS compiled_knowledge (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_observation_ids TEXT DEFAULT '[]',
+        confidence TEXT DEFAULT 'high',
+        protected INTEGER DEFAULT 0,
+        privacy_scope TEXT DEFAULT 'global',
+        version INTEGER DEFAULT 1,
+        compiled_at TEXT,
+        valid_until TEXT,
+        superseded_by INTEGER,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_ck_project ON compiled_knowledge(project);
+      CREATE INDEX IF NOT EXISTS idx_ck_topic ON compiled_knowledge(project, topic);
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(32, new Date().toISOString());
   }
 }
