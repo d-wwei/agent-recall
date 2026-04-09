@@ -21,6 +21,9 @@ import { getAuthMethodDescription } from '../shared/EnvManager.js';
 import { logger } from '../utils/logger.js';
 import { ChromaMcpManager } from './sync/ChromaMcpManager.js';
 import { ChromaSync } from './sync/ChromaSync.js';
+import { AutoMemorySync } from './sync/AutoMemorySync.js';
+import { LockManager } from './concurrency/LockManager.js';
+import { homedir } from 'os';
 import { configureSupervisorSignalHandlers, getSupervisor, startSupervisor } from '../supervisor/index.js';
 import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
 
@@ -203,6 +206,9 @@ export class WorkerService {
   // Data retention cleanup interval (daily, opt-in)
   private dataRetentionInterval: ReturnType<typeof setInterval> | null = null;
 
+  // Phase 1: concurrency lock manager
+  private lockManager: LockManager | null = null;
+
   // AI interaction tracking for health endpoint
   private lastAiInteraction: {
     timestamp: number;
@@ -228,6 +234,14 @@ export class WorkerService {
     this.paginationHelper = new PaginationHelper(this.dbManager);
     this.settingsManager = new SettingsManager(this.dbManager);
     this.sessionEventBroadcaster = new SessionEventBroadcaster(this.sseBroadcaster, this);
+
+    // Phase 1: Initialize lock manager for background task mutual exclusion
+    try {
+      const dataDir = SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR');
+      this.lockManager = new LockManager(path.join(dataDir, 'locks'));
+    } catch (err) {
+      logger.warn('Failed to initialize LockManager', err);
+    }
 
     // Set callback for when sessions are deleted
     this.sessionManager.setOnSessionDeleted(() => {
