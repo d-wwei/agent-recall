@@ -413,4 +413,37 @@ export class PersonaService {
     }
     return checker.checkStaleness(updatedAtMap);
   }
+
+  // ==========================================
+  // Project-Adaptive Schema (4.2)
+  // ==========================================
+
+  /**
+   * Retrieve the AI-detected project schema for a given project.
+   *
+   * The schema captures patterns like:
+   *   { "frequent_patterns": ["migration files", "API endpoints"],
+   *     "tech_stack": ["TypeScript", "SQLite"],
+   *     "focus_areas": ["search", "context injection"] }
+   *
+   * Returns null if no schema has been stored yet.
+   */
+  getProjectSchema(project: string): Record<string, any> | null {
+    const row = this.db.prepare(
+      "SELECT content_json FROM agent_profiles WHERE scope = ? AND profile_type = 'project_schema'"
+    ).get(project) as { content_json: string } | null;
+    if (!row) return null;
+    try { return JSON.parse(row.content_json); } catch { return null; }
+  }
+
+  /**
+   * Store (or replace) the AI-detected project schema for a given project.
+   */
+  setProjectSchema(project: string, schema: Record<string, any>): void {
+    const now = new Date().toISOString();
+    this.db.prepare(
+      "INSERT OR REPLACE INTO agent_profiles (scope, profile_type, content_json, updated_at) VALUES (?, 'project_schema', ?, ?)"
+    ).run(project, JSON.stringify(schema), now);
+    logger.debug('PERSONA', `Set project_schema for scope: ${project}`);
+  }
 }
