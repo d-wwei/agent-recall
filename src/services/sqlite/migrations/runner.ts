@@ -49,6 +49,7 @@ export class MigrationRunner {
     this.createFactsTable(); // migration 35
     this.createAgentDiaryTable(); // migration 36
     this.createMarkdownSyncTable(); // migration 37
+    this.createActivityLogTable(); // migration 38
   }
 
   /**
@@ -1353,5 +1354,27 @@ export class MigrationRunner {
     `);
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(37, new Date().toISOString());
+  }
+
+  /**
+   * Create activity_log table (migration 38)
+   */
+  private createActivityLogTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(38);
+    if (applied) return;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        operation TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        project TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_activity_log_operation ON activity_log(operation);
+      CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at);
+    `);
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(38, new Date().toISOString());
+    logger.debug('DB', 'activity_log table created successfully');
   }
 }
