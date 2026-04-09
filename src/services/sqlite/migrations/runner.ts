@@ -44,6 +44,7 @@ export class MigrationRunner {
     this.addObservationPhase1Fields();
     this.createSyncStateTable(); // migration 31
     this.createCompiledKnowledgeTable(); // migration 32
+    this.addObservationPhase2Fields(); // migration 33
   }
 
   /**
@@ -1217,5 +1218,42 @@ export class MigrationRunner {
     `);
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(32, new Date().toISOString());
+  }
+
+  private addObservationPhase2Fields(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(33);
+    if (applied) return;
+
+    // Add new columns to observations
+    const tableInfo = this.db.prepare('PRAGMA table_info(observations)').all() as { name: string }[];
+    const existingColumns = new Set(tableInfo.map((c: any) => c.name));
+
+    const newColumns = [
+      { name: 'valid_until', sql: 'ALTER TABLE observations ADD COLUMN valid_until TEXT' },
+      { name: 'superseded_by', sql: 'ALTER TABLE observations ADD COLUMN superseded_by INTEGER' },
+      { name: 'related_observations', sql: "ALTER TABLE observations ADD COLUMN related_observations TEXT DEFAULT '[]'" },
+    ];
+
+    for (const col of newColumns) {
+      if (!existingColumns.has(col.name)) {
+        this.db.exec(col.sql);
+      }
+    }
+
+    // Create observation_links table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS observation_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER REFERENCES observations(id),
+        target_id INTEGER REFERENCES observations(id),
+        relation TEXT NOT NULL,
+        auto_detected INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_obs_links_source ON observation_links(source_id);
+      CREATE INDEX IF NOT EXISTS idx_obs_links_target ON observation_links(target_id);
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(33, new Date().toISOString());
   }
 }
