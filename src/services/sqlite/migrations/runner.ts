@@ -42,6 +42,7 @@ export class MigrationRunner {
     this.createAuditLogTable();
     this.createObservationBufferTable();
     this.addObservationPhase1Fields();
+    this.createSyncStateTable(); // migration 31
   }
 
   /**
@@ -1164,5 +1165,26 @@ export class MigrationRunner {
     }
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(30, new Date().toISOString());
+  }
+
+  /**
+   * Create sync_state table for auto memory tracking (migration 31)
+   * Tracks which .assistant/ files have been synced into the database,
+   * enabling incremental re-sync on content changes.
+   */
+  private createSyncStateTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(31);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS sync_state (
+        file_path TEXT PRIMARY KEY,
+        content_hash TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        last_sync_at TEXT NOT NULL
+      );
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(31, new Date().toISOString());
   }
 }
