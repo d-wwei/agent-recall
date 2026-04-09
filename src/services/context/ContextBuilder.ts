@@ -211,8 +211,8 @@ function buildContextOutput(
   const timeline = buildTimeline(fittedObservations, summariesForTimeline);
   const fullObservationIds = getFullObservationIds(fittedObservations, config.fullObservationCount);
 
-  // Render timeline
-  output.push(...renderTimeline(timeline, fullObservationIds, config, cwd, useColors));
+  // Render timeline (streamlined: title + first fact only for L1 wake-up summary)
+  output.push(...renderTimeline(timeline, fullObservationIds, config, cwd, useColors, true));
 
   // Render most recent summary if applicable
   const mostRecentSummary = summaries[0];

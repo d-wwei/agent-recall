@@ -58,6 +58,7 @@ function renderDayTimelineMarkdown(
   dayItems: TimelineItem[],
   fullObservationIds: Set<number>,
   config: ContextConfig,
+  streamlined: boolean = false,
 ): string[] {
   const output: string[] = [];
 
@@ -78,6 +79,12 @@ function renderDayTimelineMarkdown(
       const showTime = time !== lastTime;
       const timeDisplay = showTime ? time : '';
       lastTime = time;
+
+      if (streamlined) {
+        const firstFact = obs.facts ? parseJsonArray(obs.facts)[0] || '' : '';
+        output.push(`- [${obs.type}] ${obs.title}${firstFact ? ': ' + firstFact : ''}`);
+        continue;
+      }
 
       const shouldShowFull = fullObservationIds.has(obs.id);
 
@@ -102,6 +109,7 @@ function renderDayTimelineColor(
   fullObservationIds: Set<number>,
   config: ContextConfig,
   cwd: string,
+  streamlined: boolean = false,
 ): string[] {
   const output: string[] = [];
 
@@ -124,6 +132,12 @@ function renderDayTimelineColor(
       const time = formatTime(obs.created_at);
       const showTime = time !== lastTime;
       lastTime = time;
+
+      if (streamlined) {
+        const firstFact = obs.facts ? parseJsonArray(obs.facts)[0] || '' : '';
+        output.push(`- [${obs.type}] ${obs.title}${firstFact ? ': ' + firstFact : ''}`);
+        continue;
+      }
 
       const shouldShowFull = fullObservationIds.has(obs.id);
 
@@ -156,12 +170,13 @@ export function renderDayTimeline(
   fullObservationIds: Set<number>,
   config: ContextConfig,
   cwd: string,
-  useColors: boolean
+  useColors: boolean,
+  streamlined: boolean = false
 ): string[] {
   if (useColors) {
-    return renderDayTimelineColor(day, dayItems, fullObservationIds, config, cwd);
+    return renderDayTimelineColor(day, dayItems, fullObservationIds, config, cwd, streamlined);
   }
-  return renderDayTimelineMarkdown(day, dayItems, fullObservationIds, config);
+  return renderDayTimelineMarkdown(day, dayItems, fullObservationIds, config, streamlined);
 }
 
 /**
@@ -172,13 +187,14 @@ export function renderTimeline(
   fullObservationIds: Set<number>,
   config: ContextConfig,
   cwd: string,
-  useColors: boolean
+  useColors: boolean,
+  streamlined: boolean = false
 ): string[] {
   const output: string[] = [];
   const itemsByDay = groupTimelineByDay(timeline);
 
   for (const [day, dayItems] of itemsByDay) {
-    output.push(...renderDayTimeline(day, dayItems, fullObservationIds, config, cwd, useColors));
+    output.push(...renderDayTimeline(day, dayItems, fullObservationIds, config, cwd, useColors, streamlined));
   }
 
   return output;
