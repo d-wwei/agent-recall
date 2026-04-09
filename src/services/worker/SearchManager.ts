@@ -31,10 +31,13 @@ import {
   SEARCH_CONSTANTS
 } from './search/index.js';
 import type { TimelineData } from './search/index.js';
+import { FusionRanker } from './search/FusionRanker.js';
+import type { FusionCandidate } from './search/FusionRanker.js';
 
 export class SearchManager {
   private orchestrator: SearchOrchestrator;
   private timelineBuilder: TimelineBuilder;
+  private fusionRanker: FusionRanker;
   /** Set to true after the first Chroma connection failure to avoid log spam */
   private chromaFallbackWarned = false;
   /** Tracks whether Chroma is known to be unreachable (set on first connection failure) */
@@ -54,6 +57,7 @@ export class SearchManager {
       chromaSync
     );
     this.timelineBuilder = new TimelineBuilder();
+    this.fusionRanker = new FusionRanker();
   }
 
   /**
@@ -92,6 +96,96 @@ export class SearchManager {
       }
       return { ids: [], distances: [], metadatas: [] };
     }
+  }
+
+  /**
+   * Apply fusion ranking to observation results from ChromaDB.
+   * Uses FusionRanker to reorder observations by combining Chroma similarity scores
+   * with observation type weights and staleness decay.
+   *
+   * @param observations - Hydrated observation results from SQLite
+   * @param chromaDistanceMap - Map of observation ID → Chroma distance
+   * @param query - The search query text (used for query type classification)
+   * @returns Observations reordered by fusion score
+   */
+  private applyFusionRanking(
+    observations: ObservationSearchResult[],
+    chromaDistanceMap: Map<number, number>,
+    query: string
+  ): ObservationSearchResult[] {
+    if (observations.length === 0) return observations;
+
+    // Classify the query to determine chroma/fts5 weight split
+    const queryType = this.fusionRanker.classifyQuery(query);
+
+    // Compute max distance for normalization (avoid division by zero)
+    const distances = Array.from(chromaDistanceMap.values());
+    const maxDistance = Math.max(...distances, 0.001);
+
+    // Build FusionCandidate objects for each observation
+    const candidates: FusionCandidate[] = observations.map(obs => {
+      const chromaDistance = chromaDistanceMap.get(obs.id) ?? maxDistance;
+      // Normalize: distance → similarity (1 = perfect match, 0 = worst)
+      const chromaScore = 1 - chromaDistance / maxDistance;
+
+      return {
+        id: obs.id,
+        chromaScore,
+        ftsScore: 0, // FTS5 text search not active; Chroma-only path
+        type: obs.type,
+        lastReferencedAt: (obs as any).last_referenced_at ?? null,
+        createdAtEpoch: obs.created_at_epoch,
+      };
+    });
+
+    // Rank using fusion scoring (type weights + staleness decay)
+    const ranked = this.fusionRanker.rank(candidates, queryType);
+    logger.debug('SEARCH', 'Fusion ranking applied', {
+      queryType,
+      candidateCount: candidates.length,
+      topScore: ranked.length > 0 ? ranked[0].finalScore.toFixed(4) : 'N/A',
+    });
+
+    // Build ID → rank position map for reordering
+    const rankOrder = new Map<number, number>();
+    ranked.forEach((r, idx) => rankOrder.set(r.id, idx));
+
+    // Reorder observations according to fusion ranking
+    const reordered = [...observations].sort((a, b) => {
+      const rankA = rankOrder.get(a.id) ?? observations.length;
+      const rankB = rankOrder.get(b.id) ?? observations.length;
+      return rankA - rankB;
+    });
+
+    // Update last_referenced_at for top 10 results (async, non-blocking)
+    const topIds = ranked.slice(0, 10).map(r => r.id);
+    try {
+      this.sessionStore.updateLastReferenced(topIds);
+    } catch (err) {
+      logger.warn('SEARCH', 'Failed to update last_referenced_at', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return reordered;
+  }
+
+  /**
+   * Build a Map of observation ID → Chroma distance from raw Chroma results.
+   * Used to provide distance scores for fusion ranking after SQLite hydration.
+   */
+  private buildChromaDistanceMap(
+    chromaIds: number[],
+    chromaDistances: number[]
+  ): Map<number, number> {
+    const map = new Map<number, number>();
+    for (let i = 0; i < chromaIds.length; i++) {
+      // Keep first (best) distance per ID; queryChroma already deduplicates
+      if (!map.has(chromaIds[i])) {
+        map.set(chromaIds[i], chromaDistances[i]);
+      }
+    }
+    return map;
   }
 
   /**
@@ -272,6 +366,13 @@ export class SearchManager {
         }
 
         logger.debug('SEARCH', 'Hydrated results from SQLite', { observations: observations.length, sessions: sessions.length, prompts: prompts.length });
+
+        // Step 5: Apply fusion ranking to reorder observations
+        // Uses Chroma similarity scores + type weights + staleness decay
+        if (observations.length > 1) {
+          const distanceMap = this.buildChromaDistanceMap(chromaResults.ids, chromaResults.distances);
+          observations = this.applyFusionRanking(observations, distanceMap, query);
+        }
       } else if (chromaActuallyWorked) {
         // Chroma returned 0 results and was genuinely working - this is the correct answer
         logger.debug('SEARCH', 'ChromaDB found no matches (final result, no FTS5 fallback)', {});
@@ -950,6 +1051,12 @@ export class SearchManager {
           const limit = options.limit || 20;
           results = this.sessionStore.getObservationsByIds(recentIds, { orderBy: 'date_desc', limit });
           logger.debug('SEARCH', 'Hydrated observations from SQLite', { count: results.length });
+
+          // Step 4: Apply fusion ranking (type weights + staleness decay)
+          if (results.length > 1) {
+            const distanceMap = this.buildChromaDistanceMap(chromaResults.ids, chromaResults.distances);
+            results = this.applyFusionRanking(results, distanceMap, query);
+          }
         }
       }
     }
