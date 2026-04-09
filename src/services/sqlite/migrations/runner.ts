@@ -48,6 +48,7 @@ export class MigrationRunner {
     this.createEntitiesTable(); // migration 34
     this.createFactsTable(); // migration 35
     this.createAgentDiaryTable(); // migration 36
+    this.createMarkdownSyncTable(); // migration 37
   }
 
   /**
@@ -1332,5 +1333,25 @@ export class MigrationRunner {
     `);
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(36, new Date().toISOString());
+  }
+
+  /**
+   * Create markdown_sync table for tracking DB-to-file export state (migration 37)
+   * Records per-file hash state so incremental re-exports can skip unchanged records.
+   */
+  private createMarkdownSyncTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(37);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS markdown_sync (
+        file_path TEXT PRIMARY KEY,
+        last_db_hash TEXT,
+        last_file_hash TEXT,
+        last_sync_at TEXT
+      );
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(37, new Date().toISOString());
   }
 }
