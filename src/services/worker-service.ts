@@ -335,6 +335,50 @@ export class WorkerService {
     this.server.registerRoutes(new LogsRoutes());
     this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'agent-recall'));
 
+    // Incremental save endpoint — non-blocking periodic checkpoint (Phase 5.1)
+    // Called every 10 tool calls by the observation hook to create safety checkpoints
+    // for long sessions. Returns immediately; actual save runs in background.
+    this.server.app.post('/api/incremental-save', async (req, res) => {
+      const { contentSessionId, project } = req.body ?? {};
+      if (!contentSessionId || !project) {
+        res.status(400).json({ error: 'Missing required fields: contentSessionId, project' });
+        return;
+      }
+
+      // Respond immediately — fire-and-forget pattern
+      res.status(200).json({ status: 'accepted' });
+
+      // Background: attempt incremental summary save
+      setImmediate(async () => {
+        try {
+          // Look up the sessionDbId from the database, then find the active session
+          const store = this.dbManager.getSessionStore();
+          const sessionDbId = store.createSDKSession(contentSessionId, '', '');
+          const session = this.sessionManager.getSession(sessionDbId);
+
+          logger.info('SAVE', 'Incremental save checkpoint triggered', {
+            contentSessionId,
+            project,
+            sessionDbId,
+            hasActiveSession: !!session,
+            hasRunningGenerator: !!(session?.generatorPromise)
+          });
+
+          // Trigger the session processor if session is active but generator is idle —
+          // this ensures any queued observations are flushed to the AI summary pipeline
+          if (session && !session.generatorPromise) {
+            this.startSessionProcessor(session, 'incremental-save');
+          }
+        } catch (error) {
+          // Background errors must not surface to the caller
+          logger.warn('SAVE', 'Incremental save background task failed', {
+            contentSessionId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      });
+    });
+
     // Note: Agent Recall routes (persona, bootstrap, recovery, archives) are registered
     // in initializeInBackground() after DB is initialized, not here in the constructor.
   }
