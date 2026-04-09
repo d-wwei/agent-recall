@@ -40,6 +40,9 @@ interface StoredObservation {
   discovery_tokens: number; // ROI metrics
   created_at: string;
   created_at_epoch: number;
+  // Phase 1 enrichment fields (optional)
+  confidence?: 'high' | 'medium' | 'low';
+  tags?: string[];
 }
 
 interface StoredSummary {
@@ -135,7 +138,11 @@ export class ChromaSync {
       project: obs.project,
       created_at_epoch: obs.created_at_epoch,
       type: obs.type || 'discovery',
-      title: obs.title || 'Untitled'
+      title: obs.title || 'Untitled',
+      // Phase 1 enrichment fields (1.4)
+      confidence: obs.confidence ?? 'medium',
+      observation_type: obs.type || 'discovery',
+      topic: concepts.length > 0 ? concepts[0] : 'general'
     };
 
     // Add optional metadata fields
@@ -150,6 +157,11 @@ export class ChromaSync {
     }
     if (files_modified.length > 0) {
       baseMetadata.files_modified = files_modified.join(',');
+    }
+    // tags: comma-joined, only if non-empty
+    const tags = Array.isArray(obs.tags) && obs.tags.length > 0 ? obs.tags : [];
+    if (tags.length > 0) {
+      baseMetadata.tags = tags.join(',');
     }
 
     // Narrative as separate document
@@ -327,7 +339,10 @@ export class ChromaSync {
       prompt_number: promptNumber,
       discovery_tokens: discoveryTokens,
       created_at: new Date(createdAtEpoch * 1000).toISOString(),
-      created_at_epoch: createdAtEpoch
+      created_at_epoch: createdAtEpoch,
+      // Phase 1 enrichment fields (1.4)
+      confidence: obs.confidence,
+      tags: obs.tags
     };
 
     const documents = this.formatObservationDocs(stored);

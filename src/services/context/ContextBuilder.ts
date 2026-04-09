@@ -31,10 +31,13 @@ import { shouldShowSummary, renderSummaryFields } from './sections/SummaryRender
 import { renderPreviouslySection, renderFooter } from './sections/FooterRenderer.js';
 import { renderPersona } from './sections/PersonaRenderer.js';
 import { renderActiveTask } from './sections/ActiveTaskRenderer.js';
+import { renderRecallProtocol } from './sections/RecallProtocolRenderer.js';
 import { renderMarkdownEmptyState } from './formatters/MarkdownFormatter.js';
 import { renderColorEmptyState } from './formatters/ColorFormatter.js';
 import { PersonaService } from '../persona/PersonaService.js';
 import type { MergedPersona, ActiveTaskRow, BootstrapStateRow, PersonaConflict } from '../persona/PersonaTypes.js';
+import { AutoMemorySync } from '../sync/AutoMemorySync.js';
+import { existsSync } from 'fs';
 
 // Version marker path for native module error handling
 const VERSION_MARKER_PATH = path.join(
@@ -111,6 +114,9 @@ function buildContextOutput(
   if (persona) {
     output.push(...renderPersona(persona, useColors));
   }
+
+  // Agent Recall: Inject RECALL_PROTOCOL behavioral directives (L0 — always present)
+  output.push(...renderRecallProtocol(useColors));
 
   // Agent Recall: Warn about persona conflicts if any
   if (personaConflicts && personaConflicts.length > 0) {
@@ -199,6 +205,20 @@ export async function generateContext(
   const db = initializeDatabase();
   if (!db) {
     return '';
+  }
+
+  // Phase 1: Auto memory sync — import user/feedback from ~/.claude/memory/
+  try {
+    const autoMemoryDir = path.join(homedir(), '.claude', 'memory');
+    if (existsSync(autoMemoryDir)) {
+      const autoSync = new AutoMemorySync(db.db, autoMemoryDir);
+      const syncResult = autoSync.syncIncremental();
+      if (syncResult.imported > 0) {
+        logger.debug('CONTEXT', `Auto memory sync: imported ${syncResult.imported} entries`);
+      }
+    }
+  } catch (err) {
+    logger.debug('CONTEXT', 'Auto memory sync failed (non-blocking)', { error: String(err) });
   }
 
   try {

@@ -76,6 +76,24 @@ ${mode.prompts.output_format_header}
     <file>${mode.prompts.xml_file_placeholder}</file>
     <file>${mode.prompts.xml_file_placeholder}</file>
   </files_modified>
+  <confidence>high|medium|low</confidence>
+  <!--
+    Confidence levels:
+    - high: directly observed from tool output (file read, test result, command output)
+    - medium: inferred from context (likely correct but not directly confirmed)
+    - low: speculative or ambiguous
+  -->
+  <tags>
+    <tag>relevant-tag</tag>
+  </tags>
+  <has_preference>true|false</has_preference>
+  <!--
+    Set has_preference to true if the user expressed a preference ("I prefer X", "always use X", "don't do Y", "我习惯用X", "不要用Y").
+  -->
+  <event_date>YYYY-MM-DD or null</event_date>
+  <!--
+    event_date: if the observation refers to a specific past or future date, extract it as YYYY-MM-DD. Otherwise omit or set to null.
+  -->
 </observation>
 \`\`\`
 ${mode.prompts.format_examples}
@@ -228,6 +246,24 @@ ${mode.prompts.output_format_header}
     <file>${mode.prompts.xml_file_placeholder}</file>
     <file>${mode.prompts.xml_file_placeholder}</file>
   </files_modified>
+  <confidence>high|medium|low</confidence>
+  <!--
+    Confidence levels:
+    - high: directly observed from tool output (file read, test result, command output)
+    - medium: inferred from context (likely correct but not directly confirmed)
+    - low: speculative or ambiguous
+  -->
+  <tags>
+    <tag>relevant-tag</tag>
+  </tags>
+  <has_preference>true|false</has_preference>
+  <!--
+    Set has_preference to true if the user expressed a preference ("I prefer X", "always use X", "don't do Y", "我习惯用X", "不要用Y").
+  -->
+  <event_date>YYYY-MM-DD or null</event_date>
+  <!--
+    event_date: if the observation refers to a specific past or future date, extract it as YYYY-MM-DD. Otherwise omit or set to null.
+  -->
 </observation>
 \`\`\`
 ${mode.prompts.format_examples}

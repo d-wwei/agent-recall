@@ -21,6 +21,9 @@ import { getAuthMethodDescription } from '../shared/EnvManager.js';
 import { logger } from '../utils/logger.js';
 import { ChromaMcpManager } from './sync/ChromaMcpManager.js';
 import { ChromaSync } from './sync/ChromaSync.js';
+import { AutoMemorySync } from './sync/AutoMemorySync.js';
+import { LockManager } from './concurrency/LockManager.js';
+import { homedir } from 'os';
 import { configureSupervisorSignalHandlers, getSupervisor, startSupervisor } from '../supervisor/index.js';
 import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
 
@@ -203,6 +206,9 @@ export class WorkerService {
   // Data retention cleanup interval (daily, opt-in)
   private dataRetentionInterval: ReturnType<typeof setInterval> | null = null;
 
+  // Phase 1: concurrency lock manager
+  private lockManager: LockManager | null = null;
+
   // AI interaction tracking for health endpoint
   private lastAiInteraction: {
     timestamp: number;
@@ -228,6 +234,14 @@ export class WorkerService {
     this.paginationHelper = new PaginationHelper(this.dbManager);
     this.settingsManager = new SettingsManager(this.dbManager);
     this.sessionEventBroadcaster = new SessionEventBroadcaster(this.sseBroadcaster, this);
+
+    // Phase 1: Initialize lock manager for background task mutual exclusion
+    try {
+      const dataDir = SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR');
+      this.lockManager = new LockManager(path.join(dataDir, 'locks'));
+    } catch (err) {
+      logger.warn('Failed to initialize LockManager', err);
+    }
 
     // Set callback for when sessions are deleted
     this.sessionManager.setOnSessionDeleted(() => {
@@ -334,6 +348,50 @@ export class WorkerService {
     this.server.registerRoutes(new SettingsRoutes(this.settingsManager));
     this.server.registerRoutes(new LogsRoutes());
     this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'agent-recall'));
+
+    // Incremental save endpoint — non-blocking periodic checkpoint (Phase 5.1)
+    // Called every 10 tool calls by the observation hook to create safety checkpoints
+    // for long sessions. Returns immediately; actual save runs in background.
+    this.server.app.post('/api/incremental-save', async (req, res) => {
+      const { contentSessionId, project } = req.body ?? {};
+      if (!contentSessionId || !project) {
+        res.status(400).json({ error: 'Missing required fields: contentSessionId, project' });
+        return;
+      }
+
+      // Respond immediately — fire-and-forget pattern
+      res.status(200).json({ status: 'accepted' });
+
+      // Background: attempt incremental summary save
+      setImmediate(async () => {
+        try {
+          // Look up the sessionDbId from the database, then find the active session
+          const store = this.dbManager.getSessionStore();
+          const sessionDbId = store.createSDKSession(contentSessionId, '', '');
+          const session = this.sessionManager.getSession(sessionDbId);
+
+          logger.info('SAVE', 'Incremental save checkpoint triggered', {
+            contentSessionId,
+            project,
+            sessionDbId,
+            hasActiveSession: !!session,
+            hasRunningGenerator: !!(session?.generatorPromise)
+          });
+
+          // Trigger the session processor if session is active but generator is idle —
+          // this ensures any queued observations are flushed to the AI summary pipeline
+          if (session && !session.generatorPromise) {
+            this.startSessionProcessor(session, 'incremental-save');
+          }
+        } catch (error) {
+          // Background errors must not surface to the caller
+          logger.warn('SAVE', 'Incremental save background task failed', {
+            contentSessionId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      });
+    });
 
     // Note: Agent Recall routes (persona, bootstrap, recovery, archives) are registered
     // in initializeInBackground() after DB is initialized, not here in the constructor.

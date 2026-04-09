@@ -1,0 +1,142 @@
+[
+  {
+    "id": "exact-1",
+    "query": "SessionStore.ts",
+    "type": "exact",
+    "expected_concepts": ["SessionStore", "database", "sqlite"],
+    "description": "Find observations about the SessionStore file"
+  },
+  {
+    "id": "exact-2",
+    "query": "createSDKSession",
+    "type": "exact",
+    "expected_concepts": ["session", "createSDKSession", "database"],
+    "description": "Find observations about the createSDKSession function"
+  },
+  {
+    "id": "exact-3",
+    "query": "ERR_AUTH_TOKEN_EXPIRED",
+    "type": "exact",
+    "expected_concepts": ["auth", "error", "token"],
+    "description": "Find observations about auth token expiry error code"
+  },
+  {
+    "id": "exact-4",
+    "query": "storeObservation",
+    "type": "exact",
+    "expected_concepts": ["observation", "storage", "database"],
+    "description": "Find observations about the storeObservation function"
+  },
+  {
+    "id": "semantic-1",
+    "query": "how does authentication work",
+    "type": "semantic",
+    "expected_concepts": ["auth", "jwt", "token", "login"],
+    "description": "Understand the authentication implementation"
+  },
+  {
+    "id": "semantic-2",
+    "query": "what is the database schema",
+    "type": "semantic",
+    "expected_concepts": ["database", "schema", "sqlite", "migration"],
+    "description": "Understand the database schema structure"
+  },
+  {
+    "id": "semantic-3",
+    "query": "how does API rate limiting work",
+    "type": "semantic",
+    "expected_concepts": ["api", "rate-limit", "throttle"],
+    "description": "Understand the API rate limiting mechanism"
+  },
+  {
+    "id": "semantic-4",
+    "query": "what is the deployment strategy",
+    "type": "semantic",
+    "expected_concepts": ["deployment", "docker", "ci-cd"],
+    "description": "Understand the deployment approach"
+  },
+  {
+    "id": "temporal-1",
+    "query": "changes last week",
+    "type": "temporal",
+    "expected_concepts": ["change", "refactor", "update"],
+    "description": "Find recent changes and modifications"
+  },
+  {
+    "id": "temporal-2",
+    "query": "recent bugfixes",
+    "type": "temporal",
+    "expected_concepts": ["bugfix", "fix", "error"],
+    "description": "Find recently fixed bugs"
+  },
+  {
+    "id": "temporal-3",
+    "query": "what was done yesterday",
+    "type": "temporal",
+    "expected_concepts": ["feature", "change", "decision"],
+    "description": "Find work completed yesterday"
+  },
+  {
+    "id": "temporal-4",
+    "query": "latest database migrations",
+    "type": "temporal",
+    "expected_concepts": ["database", "migration", "schema"],
+    "description": "Find the most recent database migration work"
+  },
+  {
+    "id": "preference-1",
+    "query": "what style do I prefer for TypeScript",
+    "type": "preference",
+    "expected_concepts": ["typescript", "style", "preference"],
+    "description": "Find user's TypeScript coding style preferences"
+  },
+  {
+    "id": "preference-2",
+    "query": "my preferred tools for testing",
+    "type": "preference",
+    "expected_concepts": ["testing", "bun", "jest", "tools"],
+    "description": "Find user's testing tool preferences"
+  },
+  {
+    "id": "preference-3",
+    "query": "preferred error handling approach",
+    "type": "preference",
+    "expected_concepts": ["error-handling", "try-catch", "preference"],
+    "description": "Find preferred error handling patterns"
+  },
+  {
+    "id": "preference-4",
+    "query": "my coding conventions",
+    "type": "preference",
+    "expected_concepts": ["convention", "style", "preference", "typescript"],
+    "description": "Find established coding conventions"
+  },
+  {
+    "id": "assistant-1",
+    "query": "what did you suggest for the auth refactor",
+    "type": "assistant",
+    "expected_concepts": ["auth", "refactor", "suggestion"],
+    "description": "Find assistant suggestions about auth refactoring"
+  },
+  {
+    "id": "assistant-2",
+    "query": "you mentioned a performance optimization",
+    "type": "assistant",
+    "expected_concepts": ["performance", "optimization", "suggestion"],
+    "description": "Find previously mentioned performance optimizations"
+  },
+  {
+    "id": "assistant-3",
+    "query": "what approach did you recommend for the API",
+    "type": "assistant",
+    "expected_concepts": ["api", "recommendation", "approach"],
+    "description": "Find assistant recommendations about API design"
+  },
+  {
+    "id": "assistant-4",
+    "query": "you suggested using environment variables",
+    "type": "assistant",
+    "expected_concepts": ["environment", "config", "suggestion"],
+    "description": "Find assistant suggestions about configuration management"
+  }
+]

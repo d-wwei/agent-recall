@@ -15,6 +15,11 @@ export interface ParsedObservation {
   concepts: string[];
   files_read: string[];
   files_modified: string[];
+  // Phase 1 additions (1.3a)
+  confidence?: 'high' | 'medium' | 'low';
+  tags?: string[];
+  has_preference?: boolean;
+  event_date?: string | null;
 }
 
 export interface ParsedSummary {
@@ -83,6 +88,22 @@ export function parseObservations(text: string, correlationId?: string): ParsedO
       });
     }
 
+    // Extract Phase 1 (1.3a) fields
+    const confidenceRaw = extractField(obsContent, 'confidence');
+    const confidenceValid = ['high', 'medium', 'low'] as const;
+    const confidence: 'high' | 'medium' | 'low' =
+      confidenceRaw && (confidenceValid as readonly string[]).includes(confidenceRaw)
+        ? (confidenceRaw as 'high' | 'medium' | 'low')
+        : 'medium';
+
+    const tags = extractArrayElements(obsContent, 'tags', 'tag');
+
+    const hasPreferenceRaw = extractField(obsContent, 'has_preference');
+    const has_preference = hasPreferenceRaw === 'true';
+
+    const eventDateRaw = extractField(obsContent, 'event_date');
+    const event_date = !eventDateRaw || eventDateRaw === 'null' ? null : eventDateRaw;
+
     observations.push({
       type: finalType,
       title,
@@ -91,7 +112,11 @@ export function parseObservations(text: string, correlationId?: string): ParsedO
       narrative,
       concepts: cleanedConcepts,
       files_read,
-      files_modified
+      files_modified,
+      confidence,
+      tags,
+      has_preference,
+      event_date
     });
   }
 

@@ -1519,6 +1519,10 @@ export class SessionStore {
       concepts: string[];
       files_read: string[];
       files_modified: string[];
+      confidence?: 'high' | 'medium' | 'low';
+      tags?: string[];
+      has_preference?: boolean;
+      event_date?: string | null;
     },
     promptNumber?: number,
     discoveryTokens: number = 0,
@@ -1538,8 +1542,9 @@ export class SessionStore {
     const stmt = this.db.prepare(`
       INSERT INTO observations
       (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
-       files_read, files_modified, prompt_number, discovery_tokens, content_hash, created_at, created_at_epoch)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       files_read, files_modified, prompt_number, discovery_tokens, content_hash, created_at, created_at_epoch,
+       confidence, tags, has_preference, event_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -1557,7 +1562,11 @@ export class SessionStore {
       discoveryTokens,
       contentHash,
       timestampIso,
-      timestampEpoch
+      timestampEpoch,
+      observation.confidence || 'medium',
+      JSON.stringify(observation.tags || []),
+      observation.has_preference ? 1 : 0,
+      observation.event_date || null
     );
 
     return {
@@ -1645,6 +1654,10 @@ export class SessionStore {
       concepts: string[];
       files_read: string[];
       files_modified: string[];
+      confidence?: 'high' | 'medium' | 'low';
+      tags?: string[];
+      has_preference?: boolean;
+      event_date?: string | null;
     }>,
     summary: {
       request: string;
@@ -1670,8 +1683,9 @@ export class SessionStore {
       const obsStmt = this.db.prepare(`
         INSERT INTO observations
         (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
-         files_read, files_modified, prompt_number, discovery_tokens, content_hash, created_at, created_at_epoch)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         files_read, files_modified, prompt_number, discovery_tokens, content_hash, created_at, created_at_epoch,
+         confidence, tags, has_preference, event_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const observation of observations) {
@@ -1698,7 +1712,11 @@ export class SessionStore {
           discoveryTokens,
           contentHash,
           timestampIso,
-          timestampEpoch
+          timestampEpoch,
+          observation.confidence || 'medium',
+          JSON.stringify(observation.tags || []),
+          observation.has_preference ? 1 : 0,
+          observation.event_date || null
         );
         observationIds.push(Number(result.lastInsertRowid));
       }
@@ -1772,6 +1790,10 @@ export class SessionStore {
       concepts: string[];
       files_read: string[];
       files_modified: string[];
+      confidence?: 'high' | 'medium' | 'low';
+      tags?: string[];
+      has_preference?: boolean;
+      event_date?: string | null;
     }>,
     summary: {
       request: string;
@@ -1799,8 +1821,9 @@ export class SessionStore {
       const obsStmt = this.db.prepare(`
         INSERT INTO observations
         (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
-         files_read, files_modified, prompt_number, discovery_tokens, content_hash, created_at, created_at_epoch)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         files_read, files_modified, prompt_number, discovery_tokens, content_hash, created_at, created_at_epoch,
+         confidence, tags, has_preference, event_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const observation of observations) {
@@ -1827,7 +1850,11 @@ export class SessionStore {
           discoveryTokens,
           contentHash,
           timestampIso,
-          timestampEpoch
+          timestampEpoch,
+          observation.confidence || 'medium',
+          JSON.stringify(observation.tags || []),
+          observation.has_preference ? 1 : 0,
+          observation.event_date || null
         );
         observationIds.push(Number(result.lastInsertRowid));
       }
@@ -2460,5 +2487,18 @@ export class SessionStore {
     );
 
     return { imported: true, id: result.lastInsertRowid as number };
+  }
+
+  /**
+   * Update last_referenced_at for a set of observations.
+   * Called by search/retrieval paths to track staleness for fusion ranking.
+   */
+  updateLastReferenced(observationIds: number[]): void {
+    if (observationIds.length === 0) return;
+    const now = new Date().toISOString();
+    const placeholders = observationIds.map(() => '?').join(',');
+    this.db.prepare(
+      `UPDATE observations SET last_referenced_at = ? WHERE id IN (${placeholders})`
+    ).run(now, ...observationIds);
   }
 }

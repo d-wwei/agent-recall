@@ -40,6 +40,9 @@ export class MigrationRunner {
     this.createSessionArchivesTable();
     this.createTemplatesTable();
     this.createAuditLogTable();
+    this.createObservationBufferTable();
+    this.addObservationPhase1Fields();
+    this.createSyncStateTable(); // migration 31
   }
 
   /**
@@ -1111,5 +1114,77 @@ export class MigrationRunner {
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(28, new Date().toISOString());
     logger.debug('DB', 'audit_log table created successfully');
+  }
+
+  /**
+   * Create observation_buffer staging table (migration 29)
+   * Used by WriteBuffer to accumulate per-session observations before flushing
+   * to the main observations table on SessionEnd (concurrency safety, Phase 1).
+   */
+  private createObservationBufferTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(29);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS observation_buffer (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_observation_buffer_session ON observation_buffer(session_id);
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(29, new Date().toISOString());
+  }
+
+  /**
+   * Add Phase 1 fields to observations table (migration 30)
+   * Enables confidence-weighted ranking, tag-based Chroma enrichment,
+   * preference synthesis, temporal anchoring, and staleness decay.
+   */
+  private addObservationPhase1Fields(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(30);
+    if (applied) return;
+
+    const tableInfo = this.db.prepare('PRAGMA table_info(observations)').all() as { name: string }[];
+    const existingColumns = new Set(tableInfo.map((c: any) => c.name));
+
+    const newColumns = [
+      { name: 'confidence', sql: "ALTER TABLE observations ADD COLUMN confidence TEXT DEFAULT 'medium'" },
+      { name: 'tags', sql: "ALTER TABLE observations ADD COLUMN tags TEXT DEFAULT '[]'" },
+      { name: 'has_preference', sql: 'ALTER TABLE observations ADD COLUMN has_preference INTEGER DEFAULT 0' },
+      { name: 'event_date', sql: 'ALTER TABLE observations ADD COLUMN event_date TEXT' },
+      { name: 'last_referenced_at', sql: 'ALTER TABLE observations ADD COLUMN last_referenced_at TEXT' },
+    ];
+
+    for (const col of newColumns) {
+      if (!existingColumns.has(col.name)) {
+        this.db.exec(col.sql);
+      }
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(30, new Date().toISOString());
+  }
+
+  /**
+   * Create sync_state table for auto memory tracking (migration 31)
+   * Tracks which .assistant/ files have been synced into the database,
+   * enabling incremental re-sync on content changes.
+   */
+  private createSyncStateTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(31);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS sync_state (
+        file_path TEXT PRIMARY KEY,
+        content_hash TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        last_sync_at TEXT NOT NULL
+      );
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(31, new Date().toISOString());
   }
 }

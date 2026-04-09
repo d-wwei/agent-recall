@@ -5,12 +5,22 @@
  */
 
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
-import { ensureWorkerRunning, workerHttpRequest } from '../../shared/worker-utils.js';
+import { ensureWorkerRunning, workerHttpRequest, buildWorkerUrl } from '../../shared/worker-utils.js';
 import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { isProjectExcluded } from '../../utils/project-filter.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+
+/**
+ * In-memory observation counter per session (Phase 5.1 — periodic save).
+ * Resets when the hook process exits; only tracks counts within a single
+ * Claude Code session lifetime. Keys are contentSessionId strings.
+ */
+const observationCounts: Map<string, number> = new Map();
+
+/** Every N observations we fire a non-blocking incremental-save request */
+const INCREMENTAL_SAVE_INTERVAL = 10;
 
 export const observationHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
@@ -65,6 +75,23 @@ export const observationHandler: EventHandler = {
       }
 
       logger.debug('HOOK', 'Observation sent successfully', { toolName });
+
+      // Periodic save: every N observations, fire a non-blocking checkpoint request (Phase 5.1)
+      // This creates safety checkpoints for long sessions to survive worker crashes.
+      if (sessionId) {
+        const count = (observationCounts.get(sessionId) ?? 0) + 1;
+        observationCounts.set(sessionId, count);
+
+        if (count % INCREMENTAL_SAVE_INTERVAL === 0) {
+          logger.debug('HOOK', 'Firing incremental save checkpoint', { sessionId, count });
+          // Fire-and-forget — must not delay hook response
+          fetch(buildWorkerUrl('/api/incremental-save'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contentSessionId: sessionId, project: cwd })
+          }).catch(() => {});
+        }
+      }
     } catch (error) {
       // Worker unreachable — skip observation gracefully
       logger.warn('HOOK', 'Observation fetch error, skipping', { error: error instanceof Error ? error.message : String(error) });
