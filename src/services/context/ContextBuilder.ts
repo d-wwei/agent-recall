@@ -34,6 +34,7 @@ import { renderActiveTask } from './sections/ActiveTaskRenderer.js';
 import { renderRecallProtocol } from './sections/RecallProtocolRenderer.js';
 import { renderMarkdownEmptyState } from './formatters/MarkdownFormatter.js';
 import { renderColorEmptyState } from './formatters/ColorFormatter.js';
+import { TokenBudgetManager } from './TokenBudgetManager.js';
 import { PersonaService } from '../persona/PersonaService.js';
 import type { MergedPersona, ActiveTaskRow, BootstrapStateRow, PersonaConflict } from '../persona/PersonaTypes.js';
 import { AutoMemorySync } from '../sync/AutoMemorySync.js';
@@ -106,17 +107,31 @@ function buildContextOutput(
   useColors: boolean,
   persona?: MergedPersona | null,
   activeTask?: ActiveTaskRow | null,
-  personaConflicts?: PersonaConflict[]
+  personaConflicts?: PersonaConflict[],
+  budgetManager?: TokenBudgetManager,
+  completenessHints?: string[]
 ): string {
   const output: string[] = [];
 
   // Agent Recall: Render persona at the top (before everything else)
+  // L0 — track consumption but don't gate (always renders)
   if (persona) {
-    output.push(...renderPersona(persona, useColors));
+    const personaLines = renderPersona(persona, useColors);
+    output.push(...personaLines);
+    if (budgetManager) {
+      const personaText = personaLines.join('\n');
+      budgetManager.consume('L0', TokenBudgetManager.estimateTokens(personaText));
+    }
   }
 
   // Agent Recall: Inject RECALL_PROTOCOL behavioral directives (L0 — always present)
-  output.push(...renderRecallProtocol(useColors));
+  // L0 — track consumption but don't gate
+  const recallLines = renderRecallProtocol(useColors);
+  output.push(...recallLines);
+  if (budgetManager) {
+    const recallText = recallLines.join('\n');
+    budgetManager.consume('L0', TokenBudgetManager.estimateTokens(recallText));
+  }
 
   // Agent Recall: Warn about persona conflicts if any
   if (personaConflicts && personaConflicts.length > 0) {
@@ -125,19 +140,43 @@ function buildContextOutput(
   }
 
   // Agent Recall: Render active task (after persona, before timeline)
+  // L1 — gate by token budget
   if (activeTask) {
-    output.push(...renderActiveTask(activeTask, useColors));
+    const taskLines = renderActiveTask(activeTask, useColors);
+    const taskText = taskLines.join('\n');
+    const taskTokens = TokenBudgetManager.estimateTokens(taskText);
+    if (!budgetManager || budgetManager.canFit('L1', taskTokens)) {
+      output.push(...taskLines);
+      if (budgetManager) {
+        budgetManager.consume('L1', taskTokens);
+      }
+    }
+  }
+
+  // Agent Recall: L1 completeness/staleness hints (after active task, before timeline)
+  if (completenessHints && completenessHints.length > 0) {
+    output.push(...completenessHints);
   }
 
   // Agent Recall: Show last session's next steps prominently (if no active task)
   // This helps the user immediately see what they were doing last time
+  // L1 — gate by token budget
   if (!activeTask && summaries.length > 0 && summaries[0].next_steps) {
     const nextSteps = summaries[0].next_steps.trim();
     if (nextSteps) {
+      let nextStepsLines: string[];
       if (useColors) {
-        output.push(`\x1b[33m◆ Last session's next steps:\x1b[0m ${nextSteps}`, '');
+        nextStepsLines = [`\x1b[33m◆ Last session's next steps:\x1b[0m ${nextSteps}`, ''];
       } else {
-        output.push(`**Last session's next steps:** ${nextSteps}`, '');
+        nextStepsLines = [`**Last session's next steps:** ${nextSteps}`, ''];
+      }
+      const nextStepsText = nextStepsLines.join('\n');
+      const nextStepsTokens = TokenBudgetManager.estimateTokens(nextStepsText);
+      if (!budgetManager || budgetManager.canFit('L1', nextStepsTokens)) {
+        output.push(...nextStepsLines);
+        if (budgetManager) {
+          budgetManager.consume('L1', nextStepsTokens);
+        }
       }
     }
   }
@@ -148,25 +187,43 @@ function buildContextOutput(
   // Render header section
   output.push(...renderHeader(project, economics, config, useColors));
 
+  // L2 — filter observations to fit within token budget before timeline rendering
+  let fittedObservations = observations;
+  if (budgetManager) {
+    const l2Budget = budgetManager.remaining('L2');
+    let tokenCount = 0;
+    fittedObservations = observations.filter(obs => {
+      const text = [obs.title, obs.narrative, obs.facts ? JSON.stringify(obs.facts) : null]
+        .filter(Boolean)
+        .join(' ');
+      const tokens = TokenBudgetManager.estimateTokens(text);
+      if (tokenCount + tokens <= l2Budget) {
+        tokenCount += tokens;
+        return true;
+      }
+      return false;
+    });
+  }
+
   // Prepare timeline data
   const displaySummaries = summaries.slice(0, config.sessionCount);
   const summariesForTimeline = prepareSummariesForTimeline(displaySummaries, summaries);
-  const timeline = buildTimeline(observations, summariesForTimeline);
-  const fullObservationIds = getFullObservationIds(observations, config.fullObservationCount);
+  const timeline = buildTimeline(fittedObservations, summariesForTimeline);
+  const fullObservationIds = getFullObservationIds(fittedObservations, config.fullObservationCount);
 
-  // Render timeline
-  output.push(...renderTimeline(timeline, fullObservationIds, config, cwd, useColors));
+  // Render timeline (streamlined: title + first fact only for L1 wake-up summary)
+  output.push(...renderTimeline(timeline, fullObservationIds, config, cwd, useColors, true));
 
   // Render most recent summary if applicable
   const mostRecentSummary = summaries[0];
-  const mostRecentObservation = observations[0];
+  const mostRecentObservation = fittedObservations[0];
 
   if (shouldShowSummary(config, mostRecentSummary, mostRecentObservation)) {
     output.push(...renderSummaryFields(mostRecentSummary, useColors));
   }
 
   // Render previously section (prior assistant message)
-  const priorMessages = getPriorSessionMessages(observations, config, sessionId, cwd);
+  const priorMessages = getPriorSessionMessages(fittedObservations, config, sessionId, cwd);
   output.push(...renderPreviouslySection(priorMessages, useColors));
 
   // Render footer
@@ -242,6 +299,7 @@ export async function generateContext(
       }
 
       const output: string[] = [];
+      const globalBudgetManager = new TokenBudgetManager((config as any).tokenBudget || 3000);
 
       // Global mode header
       if (useColors) {
@@ -251,13 +309,24 @@ export async function generateContext(
       }
 
       // Render global persona
+      // L0 — track consumption but don't gate (always renders)
       if (persona) {
-        output.push(...renderPersona(persona, useColors));
+        const personaLines = renderPersona(persona, useColors);
+        output.push(...personaLines);
+        const personaText = personaLines.join('\n');
+        globalBudgetManager.consume('L0', TokenBudgetManager.estimateTokens(personaText));
       }
 
       // Show active task overview (from any project)
+      // L1 — gate by token budget
       if (activeTask) {
-        output.push(...renderActiveTask(activeTask, useColors));
+        const taskLines = renderActiveTask(activeTask, useColors);
+        const taskText = taskLines.join('\n');
+        const taskTokens = TokenBudgetManager.estimateTokens(taskText);
+        if (globalBudgetManager.canFit('L1', taskTokens)) {
+          output.push(...taskLines);
+          globalBudgetManager.consume('L1', taskTokens);
+        }
       }
 
       // If no persona exists and bootstrap not completed, show welcome
@@ -285,8 +354,9 @@ export async function generateContext(
     let activeTask: ActiveTaskRow | null = null;
     let bootstrapStatus: BootstrapStateRow | null = null;
     let personaConflicts: PersonaConflict[] = [];
+    let personaService: PersonaService | null = null;
     try {
-      const personaService = new PersonaService(db.db);
+      personaService = new PersonaService(db.db);
       persona = personaService.getMergedPersona(project);
       activeTask = personaService.getActiveTask(project);
       bootstrapStatus = personaService.getBootstrapStatus('__global__');
@@ -301,6 +371,29 @@ export async function generateContext(
       return renderEmptyState(project, useColors, bootstrapStatus);
     }
 
+    // Agent Recall: Completeness/staleness hints (L1 — after active task, before timeline)
+    // Only shown when bootstrap is completed; non-blocking on error.
+    const completenessHints: string[] = [];
+    if (bootstrapStatus?.status === 'completed' && personaService) {
+      try {
+        const completeness = personaService.checkCompleteness(project);
+        const staleness = personaService.checkStaleness(project);
+
+        if (completeness.percentage < 80 && completeness.gaps.length > 0) {
+          completenessHints.push(`\n> Profile ${completeness.percentage}% complete. Missing: ${completeness.gaps.join(', ')}`);
+        }
+        if (staleness.staleFields.length > 0) {
+          completenessHints.push(`\n> Some profile fields not updated in 90+ days: ${staleness.staleFields.join(', ')}`);
+        }
+      } catch (err) {
+        // Non-blocking: completeness check failure shouldn't break context generation
+        logger.debug('CONTEXT', 'Completeness check failed (non-blocking)', { error: String(err) });
+      }
+    }
+
+    // Create token budget manager for L0-L3 enforcement
+    const budgetManager = new TokenBudgetManager((config as any).tokenBudget || 3000);
+
     // Build and return context
     const output = buildContextOutput(
       project,
@@ -312,7 +405,9 @@ export async function generateContext(
       useColors,
       persona,
       activeTask,
-      personaConflicts
+      personaConflicts,
+      budgetManager,
+      completenessHints
     );
 
     return output;

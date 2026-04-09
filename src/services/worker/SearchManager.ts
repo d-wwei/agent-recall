@@ -33,11 +33,14 @@ import {
 import type { TimelineData } from './search/index.js';
 import { FusionRanker } from './search/FusionRanker.js';
 import type { FusionCandidate } from './search/FusionRanker.js';
+import { TemporalParser } from './search/TemporalParser.js';
+import type { TemporalResult } from './search/TemporalParser.js';
 
 export class SearchManager {
   private orchestrator: SearchOrchestrator;
   private timelineBuilder: TimelineBuilder;
   private fusionRanker: FusionRanker;
+  private temporalParser = new TemporalParser();
   /** Set to true after the first Chroma connection failure to avoid log spam */
   private chromaFallbackWarned = false;
   /** Tracks whether Chroma is known to be unreachable (set on first connection failure) */
@@ -257,6 +260,24 @@ export class SearchManager {
     const searchSessions = !type || type === 'sessions';
     const searchPrompts = !type || type === 'prompts';
 
+    // Temporal preprocessing: parse natural-language date expressions from the query
+    // and auto-set dateRange when the caller has not provided an explicit one.
+    let temporalResult: TemporalResult | null = null;
+    if (query) {
+      temporalResult = this.temporalParser.parse(query);
+      if (temporalResult && !options.dateRange) {
+        const windowMs = temporalResult.windowDays * 24 * 60 * 60 * 1000;
+        options.dateRange = {
+          start: new Date(Date.now() - windowMs).toISOString(),
+          end: new Date().toISOString(),
+        };
+        logger.debug('SEARCH', 'Temporal expression detected, auto-setting dateRange', {
+          windowDays: temporalResult.windowDays,
+          dateRange: options.dateRange,
+        });
+      }
+    }
+
     // PATH 1: FILTER-ONLY (no query text) - Skip Chroma/FTS5, use direct SQLite filtering
     // This path enables date filtering which Chroma cannot do (requires direct SQLite access)
     if (!query) {
@@ -372,6 +393,19 @@ export class SearchManager {
         if (observations.length > 1) {
           const distanceMap = this.buildChromaDistanceMap(chromaResults.ids, chromaResults.distances);
           observations = this.applyFusionRanking(observations, distanceMap, query);
+
+          // Step 5b: Apply temporal boost if a temporal expression was parsed.
+          // Re-sort observations so temporally-relevant entries float to the top.
+          if (temporalResult) {
+            observations = [...observations].sort((a, b) => {
+              const boostA = temporalResult!.calculateBoost(a.created_at_epoch);
+              const boostB = temporalResult!.calculateBoost(b.created_at_epoch);
+              return boostB - boostA;
+            });
+            logger.debug('SEARCH', 'Temporal boost applied to fusion-ranked results', {
+              windowDays: temporalResult.windowDays,
+            });
+          }
         }
       } else if (chromaActuallyWorked) {
         // Chroma returned 0 results and was genuinely working - this is the correct answer
