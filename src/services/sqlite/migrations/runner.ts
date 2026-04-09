@@ -40,6 +40,7 @@ export class MigrationRunner {
     this.createSessionArchivesTable();
     this.createTemplatesTable();
     this.createAuditLogTable();
+    this.createObservationBufferTable();
   }
 
   /**
@@ -1111,5 +1112,27 @@ export class MigrationRunner {
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(28, new Date().toISOString());
     logger.debug('DB', 'audit_log table created successfully');
+  }
+
+  /**
+   * Create observation_buffer staging table (migration 29)
+   * Used by WriteBuffer to accumulate per-session observations before flushing
+   * to the main observations table on SessionEnd (concurrency safety, Phase 1).
+   */
+  private createObservationBufferTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(29);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS observation_buffer (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_observation_buffer_session ON observation_buffer(session_id);
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(29, new Date().toISOString());
   }
 }
