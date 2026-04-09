@@ -45,6 +45,8 @@ export class MigrationRunner {
     this.createSyncStateTable(); // migration 31
     this.createCompiledKnowledgeTable(); // migration 32
     this.addObservationPhase2Fields(); // migration 33
+    this.createEntitiesTable(); // migration 34
+    this.createFactsTable(); // migration 35
   }
 
   /**
@@ -1255,5 +1257,56 @@ export class MigrationRunner {
     `);
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(33, new Date().toISOString());
+  }
+
+  /**
+   * Create entities table for knowledge graph (migration 34)
+   */
+  private createEntitiesTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(34);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS entities (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT DEFAULT 'unknown',
+        properties TEXT DEFAULT '{}',
+        first_seen_at TEXT,
+        last_seen_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+      CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(34, new Date().toISOString());
+  }
+
+  /**
+   * Create facts table for knowledge graph (migration 35)
+   */
+  private createFactsTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(35);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS facts (
+        id TEXT PRIMARY KEY,
+        subject TEXT REFERENCES entities(id),
+        predicate TEXT NOT NULL,
+        object TEXT REFERENCES entities(id),
+        valid_from TEXT,
+        valid_to TEXT,
+        confidence REAL DEFAULT 1.0,
+        source_observation_id INTEGER,
+        source_ref TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject);
+      CREATE INDEX IF NOT EXISTS idx_facts_object ON facts(object);
+      CREATE INDEX IF NOT EXISTS idx_facts_predicate ON facts(predicate);
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(35, new Date().toISOString());
   }
 }
