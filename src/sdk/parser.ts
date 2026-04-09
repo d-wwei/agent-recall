@@ -15,6 +15,11 @@ export interface ParsedObservation {
   concepts: string[];
   files_read: string[];
   files_modified: string[];
+  // Phase 1 additions (1.3a)
+  confidence?: 'high' | 'medium' | 'low';
+  tags?: string[];
+  has_preference?: boolean;
+  event_date?: string | null;
 }
 
 export interface ParsedSummary {
