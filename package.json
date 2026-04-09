@@ -78,6 +78,7 @@
     "cursor:uninstall": "bun plugin/scripts/worker-service.cjs cursor uninstall",
     "cursor:status": "bun plugin/scripts/worker-service.cjs cursor status",
     "cursor:setup": "bun plugin/scripts/worker-service.cjs cursor setup",
+    "benchmark": "bun tests/benchmark/search-benchmark.ts",
     "test": "bun test",
     "test:sqlite": "bun test tests/sqlite/",
     "test:agents": "bun test tests/worker/agents/",
