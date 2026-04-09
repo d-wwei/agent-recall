@@ -166,6 +166,7 @@ export class ClaudeMemDatabase {
     this.db.run('PRAGMA temp_store = memory');
     this.db.run(`PRAGMA mmap_size = ${SQLITE_MMAP_SIZE_BYTES}`);
     this.db.run(`PRAGMA cache_size = ${SQLITE_CACHE_SIZE_PAGES}`);
+    this.db.run('PRAGMA busy_timeout = 5000');
 
     // Run all migrations
     const migrationRunner = new MigrationRunner(this.db);
