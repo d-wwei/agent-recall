@@ -52,6 +52,8 @@ export class MigrationRunner {
     this.createActivityLogTable(); // migration 38
     this.addSessionPrivacyColumn(); // migration 39
     this.addObservationPropagatedColumn(); // migration 40
+    this.createSharedKnowledgeTable(); // migration 41
+    this.createCompilationLogsTable(); // migration 42
   }
 
   /**
@@ -1419,5 +1421,58 @@ export class MigrationRunner {
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(40, new Date().toISOString());
     logger.debug('DB', 'propagated column added to observations');
+  }
+
+  /**
+   * Create shared_knowledge table for team collaboration (migration 41)
+   */
+  private createSharedKnowledgeTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(41);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS shared_knowledge (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic TEXT,
+        content TEXT,
+        shared_by TEXT,
+        project TEXT,
+        shared_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(41, new Date().toISOString());
+    logger.debug('DB', 'shared_knowledge table created');
+  }
+
+  /**
+   * Create compilation_logs table for compilation observability (migration 42)
+   *
+   * Tracks each compilation run: start/end times, observation count,
+   * pages created/updated, tokens used, and final status (success/failed/cancelled).
+   */
+  private createCompilationLogsTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(42);
+    if (applied) return;
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS compilation_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        duration_ms INTEGER DEFAULT 0,
+        observations_processed INTEGER DEFAULT 0,
+        pages_created INTEGER DEFAULT 0,
+        pages_updated INTEGER DEFAULT 0,
+        tokens_used INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'running',
+        error TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(42, new Date().toISOString());
+    logger.debug('DB', 'compilation_logs table created');
   }
 }
