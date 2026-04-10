@@ -11,6 +11,7 @@
  */
 
 import { Database } from 'bun:sqlite';
+import { KnowledgeLint } from '../compilation/KnowledgeLint.js';
 
 export interface DashboardData {
   totalObservations: number;
@@ -98,7 +99,14 @@ export class DashboardService {
 
     // Optional supplementary tables — use safeCount so missing tables return 0
     const compiledPages = this.safeCount('compiled_knowledge', 'project = ?', project);
-    const lintWarnings = 0; // TODO: integrate with KnowledgeLint when available
+    let lintWarnings = 0;
+    try {
+      const lint = new KnowledgeLint(this.db);
+      const lintResult = lint.run(project);
+      lintWarnings = lintResult.warnings.length;
+    } catch {
+      // Non-blocking: KnowledgeLint may fail on older schemas missing required columns
+    }
     const totalEntities = this.safeCount('entities', 'id LIKE ?', `${project}:%`);
     const totalFacts = this.safeCount('facts', 'subject LIKE ?', `${project}:%`);
     const diaryEntries = this.safeCount('agent_diary', 'project = ?', project);
