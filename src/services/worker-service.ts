@@ -139,6 +139,7 @@ import { SessionArchiveService } from './archiving/SessionArchiveService.js';
 import { PromotionService } from './promotion/PromotionService.js';
 import { DataRetentionService } from './cleanup/DataRetentionService.js';
 import { CheckpointService } from './recovery/CheckpointService.js';
+import { NarrativeRecallEngine } from './recovery/NarrativeRecallEngine.js';
 
 // Process management for zombie cleanup (Issue #737)
 import { startOrphanReaper, reapOrphanedProcesses, getProcessBySession, ensureProcessExit } from './worker/ProcessRegistry.js';
@@ -431,6 +432,36 @@ export class WorkerService {
         }
       } catch (err) {
         logger.error('COMPILATION', 'Compilation failed', {}, err as Error);
+      }
+    });
+
+    // GET /api/recall — narrative recall engine for coherent memory storytelling
+    this.server.app.get('/api/recall', async (req, res) => {
+      const { query, project, days } = req.query as { query?: string; project?: string; days?: string };
+
+      if (!project) {
+        res.status(400).json({ error: 'Missing required parameter: project' });
+        return;
+      }
+
+      try {
+        const store = this.dbManager.getSessionStore();
+        const engine = new NarrativeRecallEngine(store.db);
+
+        let result;
+        if (days) {
+          result = engine.recallTimeline(project, parseInt(days, 10) || 7);
+        } else if (query && /status|进展/.test(query)) {
+          const topic = query.replace(/status|进展|of|的/gi, '').trim();
+          result = engine.recallStatus(project, topic);
+        } else {
+          result = engine.recall({ query: query || '', project });
+        }
+
+        res.json(result);
+      } catch (err) {
+        logger.error('RECALL', 'Narrative recall failed', {}, err as Error);
+        res.status(500).json({ error: 'Recall engine error', message: (err as Error).message });
       }
     });
 
