@@ -69,6 +69,8 @@
     "cursor:status": "bun plugin/scripts/worker-service.cjs cursor status",
     "cursor:setup": "bun plugin/scripts/worker-service.cjs cursor setup",
     "benchmark": "bun tests/benchmark/search-benchmark.ts",
+    "benchmark:ci": "bun scripts/benchmark-ci.ts",
+    "benchmark:update": "bun scripts/benchmark-ci.ts --update-baseline",
     "test": "bun test",
     "test:sqlite": "bun test tests/sqlite/",
     "test:agents": "bun test tests/worker/agents/",
@@ -91,6 +93,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.76",
     "@modelcontextprotocol/sdk": "^1.25.1",
+    "@seekdb/default-embed": "^1.2.0",
     "ansi-to-html": "^0.7.2",
     "dompurify": "^3.3.1",
     "express": "^4.18.2",
@@ -98,6 +101,7 @@
     "handlebars": "^4.7.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "seekdb": "^1.2.0",
     "yaml": "^2.8.2",
     "zod-to-json-schema": "^3.24.6"
   },

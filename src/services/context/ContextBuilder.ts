@@ -38,6 +38,7 @@ import { TokenBudgetManager } from './TokenBudgetManager.js';
 import { PersonaService } from '../persona/PersonaService.js';
 import type { MergedPersona, ActiveTaskRow, BootstrapStateRow, PersonaConflict } from '../persona/PersonaTypes.js';
 import { AutoMemorySync } from '../sync/AutoMemorySync.js';
+import { MarkdownImporter } from '../markdown-sync/MarkdownImporter.js';
 import { existsSync } from 'fs';
 
 // Version marker path for native module error handling
@@ -292,6 +293,23 @@ export async function generateContext(
     }
   } catch (err) {
     logger.debug('CONTEXT', 'Auto memory sync failed (non-blocking)', { error: String(err) });
+  }
+
+  // Phase 1b: Markdown bidirectional sync — check for user edits to exported markdown files
+  try {
+    const readableDir = path.join(homedir(), '.agent-recall', 'readable');
+    if (existsSync(readableDir)) {
+      const importer = new MarkdownImporter(db.db, readableDir);
+      const changes = importer.checkForChanges();
+      if (changes.length > 0) {
+        const importCount = importer.importChanges(changes);
+        if (importCount > 0) {
+          logger.debug('CONTEXT', `Markdown import: imported ${importCount} user-edited files`);
+        }
+      }
+    }
+  } catch (err) {
+    logger.debug('CONTEXT', 'Markdown import check failed (non-blocking)', { error: String(err) });
   }
 
   try {

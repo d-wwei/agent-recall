@@ -218,6 +218,18 @@ export interface ObservationRow {
   discovery_tokens: number; // ROI metrics: tokens spent discovering this observation
   created_at: string;
   created_at_epoch: number;
+  content_hash?: string | null;
+  scope?: string;                  // 'project' | 'global', default 'project'
+  // Phase 1 enrichment fields
+  confidence?: string | null;      // 'high' | 'medium' | 'low'
+  tags?: string | null;            // JSON array of tag strings
+  has_preference?: number;         // 0 | 1
+  event_date?: string | null;
+  last_referenced_at?: string | null;
+  // Phase 3 lifecycle fields
+  valid_until?: string | null;
+  superseded_by?: number | null;
+  related_observations?: string | null;  // JSON array of observation IDs
 }
 
 export interface SessionSummaryRow {

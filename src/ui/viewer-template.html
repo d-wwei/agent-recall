@@ -825,6 +825,106 @@
     }
 
     /* ==========================================================
+       DASHBOARD
+       ========================================================== */
+    .dashboard {
+      max-width: 640px; margin: 0 auto; padding: 20px 32px 100px;
+    }
+    .dashboard-title {
+      font-family: var(--serif); font-size: 20px; font-weight: 500;
+      color: var(--text-1); margin-bottom: 4px;
+    }
+    .dashboard-loading, .dashboard-error, .dashboard-empty {
+      font-family: var(--sans); font-size: 14px; color: var(--text-3);
+      padding: 40px 0; text-align: center;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .dashboard-muted {
+      font-family: var(--mono); font-size: 11px; color: var(--text-4);
+    }
+    .dashboard-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 12px; margin: 16px 0;
+    }
+    .stat-card {
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px; text-align: center;
+      transition: border-color .15s;
+    }
+    .stat-card:hover { border-color: var(--border-hover); }
+    .stat-value {
+      font-family: var(--mono); font-size: 24px; font-weight: 700;
+      color: var(--text-1); font-variant-numeric: tabular-nums;
+    }
+    .stat-label {
+      font-family: var(--mono); font-size: 10px; color: var(--text-3);
+      margin-top: 4px; letter-spacing: .02em;
+    }
+    .dashboard-section { margin-top: 24px; }
+    .dashboard-section-title {
+      font-family: var(--serif); font-size: 14px; font-weight: 500;
+      font-style: italic; color: var(--amber); margin-bottom: 10px;
+    }
+    .type-bars { display: flex; flex-direction: column; gap: 6px; }
+    .type-bar { display: flex; align-items: center; gap: 8px; }
+    .type-name {
+      width: 80px; font-family: var(--mono); font-size: 11px;
+      color: var(--text-2); text-align: right; flex-shrink: 0;
+    }
+    .type-fill {
+      height: 20px; background: var(--amber); border-radius: 4px;
+      min-width: 2px; transition: width .3s;
+    }
+    .type-count {
+      font-family: var(--mono); font-size: 11px; color: var(--text-3);
+      font-variant-numeric: tabular-nums;
+    }
+    .concept-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .concept-tag {
+      background: var(--bg-surface); border: 1px solid var(--border);
+      padding: 4px 10px; border-radius: 12px;
+      font-family: var(--mono); font-size: 11px; color: var(--text-2);
+    }
+    .freshness-bar {
+      display: flex; height: 24px; border-radius: 6px; overflow: hidden;
+      background: var(--bg-surface);
+    }
+    .fresh-hot { background: #22c55e; }
+    .fresh-warm { background: #eab308; }
+    .fresh-cold { background: #3b82f6; }
+    .fresh-archive { background: #6b7280; }
+    .freshness-legend {
+      display: flex; gap: 16px; margin-top: 8px;
+      font-family: var(--mono); font-size: 11px; color: var(--text-3);
+    }
+    .dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; margin-right: 4px; vertical-align: middle;
+    }
+    .dot.hot { background: #22c55e; }
+    .dot.warm { background: #eab308; }
+    .dot.cold { background: #3b82f6; }
+    .dot.archive { background: #6b7280; }
+
+    /* ==========================================================
+       SEARCH EXPLANATION
+       ========================================================== */
+    .search-explanation {
+      display: flex; align-items: center; gap: 6px;
+      font-family: var(--mono); font-size: 11px; margin-top: 4px;
+    }
+    .match-score { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .match-type {
+      color: white; padding: 2px 6px; border-radius: 4px;
+      font-size: 10px; font-weight: 500; letter-spacing: .02em;
+    }
+    .matched-keywords { display: flex; gap: 4px; }
+    .keyword-highlight {
+      background: rgba(234, 179, 8, 0.2); padding: 1px 4px;
+      border-radius: 2px; color: var(--text-2);
+    }
+
+    /* ==========================================================
        RESPONSIVE
        ========================================================== */
     @media (max-width: 768px) {
@@ -837,7 +937,7 @@
       .pill { flex-shrink: 0; }
       .feed { padding: 8px 16px 80px; }
       .header, .header-divider, .toolbar, .feed, .timeline-container { max-width: 100%; }
-      .summary-sections, .quad { grid-template-columns: 1fr; }
+      .summary-sections, .quad, .dashboard-grid { grid-template-columns: 1fr 1fr; }
       .title { font-size: 16px; }
       .hdr-r { gap: 0; }
       .project-select { max-width: 100px; font-size: 10px; }

@@ -11,6 +11,7 @@
 import { SessionStore } from '../sqlite/SessionStore.js';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { ChromaSync } from '../sync/ChromaSync.js';
+import { SeekdbSync } from '../sync/SeekdbSync.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
@@ -20,6 +21,7 @@ export class DatabaseManager {
   private sessionStore: SessionStore | null = null;
   private sessionSearch: SessionSearch | null = null;
   private chromaSync: ChromaSync | null = null;
+  private seekdbSync: SeekdbSync | null = null;
 
   /**
    * Initialize database connection (once, stays open)
@@ -29,13 +31,32 @@ export class DatabaseManager {
     this.sessionStore = new SessionStore();
     this.sessionSearch = new SessionSearch();
 
-    // Initialize ChromaSync only if Chroma is enabled (SQLite-only fallback when disabled)
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
-    if (chromaEnabled) {
-      this.chromaSync = new ChromaSync('agent-recall');
+    const vectorBackend = settings.AGENT_RECALL_VECTOR_BACKEND || 'seekdb';
+
+    if (vectorBackend === 'seekdb') {
+      // Embedded vector search via seekdb (default, no external deps)
+      try {
+        const dataDir = settings.CLAUDE_MEM_DATA_DIR;
+        this.seekdbSync = new SeekdbSync('agent-recall', dataDir);
+        await this.seekdbSync.initialize();
+        logger.info('DB', 'SeekdbSync initialized (embedded vector search)');
+      } catch (error) {
+        logger.error('DB', 'SeekdbSync initialization failed, falling back to SQLite-only', {}, error as Error);
+        this.seekdbSync = null;
+      }
+    } else if (vectorBackend === 'chroma') {
+      // Legacy ChromaSync via MCP (requires uv/uvx)
+      const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+      if (chromaEnabled) {
+        this.chromaSync = new ChromaSync('agent-recall');
+        logger.info('DB', 'ChromaSync initialized (external MCP vector search)');
+      } else {
+        logger.info('DB', 'Chroma backend selected but CLAUDE_MEM_CHROMA_ENABLED=false, using SQLite-only search');
+      }
     } else {
-      logger.info('DB', 'Chroma disabled via CLAUDE_MEM_CHROMA_ENABLED=false, using SQLite-only search');
+      // vectorBackend === 'none' or unknown
+      logger.info('DB', `Vector backend '${vectorBackend}' — using SQLite-only search`);
     }
 
     logger.info('DB', 'Database initialized');
@@ -45,7 +66,11 @@ export class DatabaseManager {
    * Close database connection and cleanup all resources
    */
   async close(): Promise<void> {
-    // Close ChromaSync first (MCP connection lifecycle managed by ChromaMcpManager)
+    // Close vector backends
+    if (this.seekdbSync) {
+      await this.seekdbSync.close();
+      this.seekdbSync = null;
+    }
     if (this.chromaSync) {
       await this.chromaSync.close();
       this.chromaSync = null;
@@ -83,10 +108,17 @@ export class DatabaseManager {
   }
 
   /**
-   * Get ChromaSync instance (returns null if Chroma is disabled)
+   * Get ChromaSync instance (returns null if Chroma is disabled or seekdb is active)
    */
   getChromaSync(): ChromaSync | null {
     return this.chromaSync;
+  }
+
+  /**
+   * Get SeekdbSync instance (returns null if seekdb is not the active backend)
+   */
+  getSeekdbSync(): SeekdbSync | null {
+    return this.seekdbSync;
   }
 
   // REMOVED: cleanupOrphanedSessions - violates "EVERYTHING SHOULD SAVE ALWAYS"

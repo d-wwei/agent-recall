@@ -3,6 +3,7 @@ import { Header } from './components/Header';
 import { Toolbar } from './components/Toolbar';
 import { Feed } from './components/Feed';
 import { SessionView } from './components/SessionView';
+import { Dashboard } from './components/Dashboard';
 import { CommandPalette } from './components/CommandPalette';
 import { ContextSettingsModal } from './components/ContextSettingsModal';
 import { LogsDrawer } from './components/LogsModal';
@@ -20,7 +21,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | 'observations' | 'summaries' | 'prompts'>('all');
-  const [viewMode, setViewMode] = useState<'timeline' | 'sessions'>('timeline');
+  const [viewMode, setViewMode] = useState<'timeline' | 'sessions' | 'dashboard'>('timeline');
   const [paginatedObservations, setPaginatedObservations] = useState<Observation[]>([]);
   const [paginatedSummaries, setPaginatedSummaries] = useState<Summary[]>([]);
   const [paginatedPrompts, setPaginatedPrompts] = useState<UserPrompt[]>([]);
@@ -121,7 +122,9 @@ export function App() {
         onViewModeChange={setViewMode}
       />
 
-      {viewMode === 'sessions' ? (
+      {viewMode === 'dashboard' ? (
+        <Dashboard project={currentFilter} apiBase="" />
+      ) : viewMode === 'sessions' ? (
         <SessionView projectFilter={currentFilter} />
       ) : (
         <Feed

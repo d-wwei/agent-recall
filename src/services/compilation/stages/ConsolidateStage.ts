@@ -10,8 +10,9 @@
  *   - discovery / feature -> 'fact'    (append, don't replace)
  *   - bugfix / refactor   -> 'event'   (timeline entry)
  *
- * For the MVP, "merge" is simple text concatenation with deduplication.
- * AI-powered summarisation is a future enhancement.
+ * Merge strategy: structuredMerge classifies observations into Status/Facts/Timeline
+ * sections, deduplicates, and produces clean Markdown output. An aiMerge method
+ * is prepared for future LLM-powered summarisation.
  */
 
 import type { CompiledKnowledgeRow } from './OrientStage.js';
@@ -53,83 +54,24 @@ function dominantClassification(observations: ObservationRow[]): Classification 
   return 'event';
 }
 
-// ─── Content helpers ────────────────────────────────────────────────────────
-
-/** Extract a one-line summary from an observation. */
-function summariseObservation(obs: ObservationRow): string {
-  const parts: string[] = [];
-
-  if (obs.title) parts.push(obs.title);
-  if (obs.subtitle) parts.push(obs.subtitle);
-  if (obs.narrative) parts.push(obs.narrative);
-
-  return parts.join(' — ') || `(observation #${obs.id})`;
-}
-
-/** Parse facts JSON string into a string array. */
-function parseFacts(obs: ObservationRow): string[] {
-  if (!obs.facts) return [];
-  try {
-    const parsed = typeof obs.facts === 'string' ? JSON.parse(obs.facts) : obs.facts;
-    if (Array.isArray(parsed)) return parsed.filter((f: unknown) => typeof f === 'string');
-  } catch {
-    // Malformed JSON — skip.
-  }
-  return [];
-}
+// ─── AI Merge prompt (stored for future LLM integration) ─────────────────
 
 /**
- * Build the content string for a compiled page.
- *
- * Format:
- * ```
- * ## {topic}
- *
- * {narrative lines}
- *
- * ### Facts
- * - fact1
- * - fact2
- * ```
+ * Prompt template for AI-powered knowledge merge.
+ * Currently unused — structuredMerge is used instead.
+ * When LLM integration is available, aiMerge() will call Haiku with this prompt.
  */
-function buildContent(
-  topic: string,
-  observations: ObservationRow[],
-  existingContent: string | null
-): string {
-  const narrativeLines: string[] = [];
-  const allFacts: string[] = [];
-  const seenFacts = new Set<string>();
+const AI_MERGE_PROMPT_TEMPLATE = `You are a knowledge compiler. Merge these observations about "{{topic}}" into a concise, structured knowledge page.
 
-  // If we have existing content, include it as the baseline
-  if (existingContent) {
-    narrativeLines.push(existingContent);
-    narrativeLines.push(''); // blank separator
-  }
+{{existing_block}}{{observations}}
 
-  for (const obs of observations) {
-    const summary = summariseObservation(obs);
-    // Simple dedup: skip if we've already seen an identical line
-    if (!narrativeLines.includes(summary)) {
-      narrativeLines.push(`- ${summary}`);
-    }
-
-    for (const fact of parseFacts(obs)) {
-      if (!seenFacts.has(fact)) {
-        seenFacts.add(fact);
-        allFacts.push(fact);
-      }
-    }
-  }
-
-  let content = `## ${topic}\n\n${narrativeLines.join('\n')}`;
-
-  if (allFacts.length > 0) {
-    content += '\n\n### Facts\n' + allFacts.map(f => `- ${f}`).join('\n');
-  }
-
-  return content;
-}
+Rules:
+- For STATUS information (current state, tech stack): replace old values with new
+- For FACTS (permanent truths): append, don't replace
+- For EVENTS (decisions, bugs, migrations): add to timeline
+- Remove duplicates and contradictions (keep the newer one)
+- Output clean Markdown with sections: ## Status, ## Facts, ## Timeline
+- Be concise — each item one line`;
 
 // ─── ConsolidateStage ────────────────────────────────────────────────────────
 
@@ -165,7 +107,7 @@ export class ConsolidateStage {
       const newIds = group.observations.map(o => o.id);
       const allIds = [...new Set([...existingIds, ...newIds])];
 
-      const content = buildContent(group.topic, group.observations, existingContent);
+      const content = this.structuredMerge(group.topic, group.observations, existingContent);
       const classification = dominantClassification(group.observations);
 
       // Confidence: high if all observations agree on classification,
@@ -183,5 +125,107 @@ export class ConsolidateStage {
     }
 
     return pages;
+  }
+
+  /**
+   * AI-powered merge (future enhancement).
+   *
+   * Builds a prompt and would call an LLM for intelligent merging.
+   * Currently falls back to structuredMerge since we don't want to require API keys.
+   * In production, this would call Haiku via the existing agent infrastructure.
+   */
+  private async aiMerge(topic: string, observations: ObservationRow[], existingContent: string | null): Promise<string> {
+    const obsText = observations.map(o =>
+      `- [${o.type}] ${o.title}: ${o.narrative || ''}`
+    ).join('\n');
+
+    // Build the prompt from template (kept for documentation / future use)
+    const _prompt = AI_MERGE_PROMPT_TEMPLATE
+      .replace('{{topic}}', topic)
+      .replace('{{existing_block}}', existingContent ? `Existing knowledge:\n${existingContent}\n\nNew observations to integrate:\n` : 'Observations:\n')
+      .replace('{{observations}}', obsText);
+
+    // For now, use structured local merge since we don't want to require API keys
+    // In production, this would call Haiku via the existing agent infrastructure
+    return this.structuredMerge(topic, observations, existingContent);
+  }
+
+  /**
+   * Structured text-based merge that classifies observations into
+   * Status / Facts / Timeline sections with deduplication.
+   */
+  private structuredMerge(topic: string, observations: ObservationRow[], existingContent: string | null): string {
+    const status: string[] = [];
+    const facts: string[] = [];
+    const timeline: string[] = [];
+
+    // Parse existing content sections if available
+    if (existingContent) {
+      const sections = this.parseSections(existingContent);
+      status.push(...sections.status);
+      facts.push(...sections.facts);
+      timeline.push(...sections.timeline);
+    }
+
+    // Classify new observations
+    for (const obs of observations) {
+      const line = `${obs.title}${obs.narrative ? ': ' + obs.narrative.substring(0, 200) : ''}`;
+
+      // Also gather any structured facts from the observation
+      const parsedFacts = this.parseFacts(obs);
+
+      if (obs.type === 'decision' || obs.type === 'change') {
+        status.push(line);
+      } else if (obs.type === 'discovery' || obs.type === 'feature') {
+        facts.push(line);
+        // Append structured facts from JSON as well
+        facts.push(...parsedFacts);
+      } else {
+        timeline.push(`[${obs.type}] ${line}`);
+        // Append structured facts from non-status/fact types too
+        if (parsedFacts.length) facts.push(...parsedFacts);
+      }
+    }
+
+    // Deduplicate
+    const dedup = (arr: string[]) => [...new Set(arr)];
+
+    // Build structured output
+    const sections: string[] = [`## ${topic}\n`];
+    if (status.length) sections.push('### Status\n' + dedup(status).map(s => `- ${s}`).join('\n'));
+    if (facts.length) sections.push('### Facts\n' + dedup(facts).map(f => `- ${f}`).join('\n'));
+    if (timeline.length) sections.push('### Timeline\n' + dedup(timeline).map(t => `- ${t}`).join('\n'));
+
+    return sections.join('\n\n');
+  }
+
+  /**
+   * Parse existing structured content into Status / Facts / Timeline arrays.
+   */
+  private parseSections(content: string): { status: string[]; facts: string[]; timeline: string[] } {
+    const result = { status: [] as string[], facts: [] as string[], timeline: [] as string[] };
+    let current: 'status' | 'facts' | 'timeline' | null = null;
+
+    for (const line of content.split('\n')) {
+      if (line.match(/^###?\s*Status/i)) current = 'status';
+      else if (line.match(/^###?\s*Facts/i)) current = 'facts';
+      else if (line.match(/^###?\s*Timeline/i)) current = 'timeline';
+      else if (line.startsWith('- ') && current) {
+        result[current].push(line.substring(2));
+      }
+    }
+    return result;
+  }
+
+  /** Parse facts JSON string into a string array. */
+  private parseFacts(obs: ObservationRow): string[] {
+    if (!obs.facts) return [];
+    try {
+      const parsed = typeof obs.facts === 'string' ? JSON.parse(obs.facts) : obs.facts;
+      if (Array.isArray(parsed)) return parsed.filter((f: unknown) => typeof f === 'string');
+    } catch {
+      // Malformed JSON — skip.
+    }
+    return [];
   }
 }

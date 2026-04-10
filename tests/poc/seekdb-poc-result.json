@@ -1,0 +1,9 @@
+{
+  "bunCompatible": true,
+  "embeddedWorks": true,
+  "insertLatencyMs": 6805,
+  "avgRecall": 1,
+  "avgLatencyMs": 6.25,
+  "queryCount": 8,
+  "docCount": 10
+}

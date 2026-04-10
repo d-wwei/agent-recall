@@ -12,7 +12,7 @@
  * - Multiple concept occurrences across rows are counted correctly
  * - Top 10 limit on concepts
  * - Compiled pages / entities / facts / diary entries return 0 for missing tables
- * - lintWarnings always returns 0 (reserved for future use)
+ * - lintWarnings uses KnowledgeLint (returns 0 when no issues)
  * - getDashboard with multiple projects only scopes to requested project
  * - Concepts column missing entirely is handled gracefully
  * - Empty concepts array is handled gracefully
@@ -291,12 +291,14 @@ describe('DashboardService', () => {
     expect(freshnessTotal).toBe(data.totalObservations);
   });
 
-  // ── 7. lintWarnings is always 0 ───────────────────────────────────────────
+  // ── 7. lintWarnings uses KnowledgeLint ──────────────────────────────────
 
-  it('always returns 0 for lintWarnings (reserved for future integration)', () => {
+  it('returns 0 for lintWarnings when no lint issues exist', () => {
     const now = Date.now();
     insertObs(db, 'proj', 'decision', now);
     const data = svc.getDashboard('proj');
+    // KnowledgeLint runs but finds no issues (schema may lack enrichment columns
+    // and each lint check handles missing columns gracefully via try/catch)
     expect(data.lintWarnings).toBe(0);
   });
 

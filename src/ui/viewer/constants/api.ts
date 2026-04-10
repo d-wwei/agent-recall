@@ -10,4 +10,6 @@ export const API_ENDPOINTS = {
   STATS: '/api/stats',
   PROCESSING_STATUS: '/api/processing-status',
   STREAM: '/stream',
+  DASHBOARD: '/api/dashboard',
+  DASHBOARD_SUMMARY: '/api/dashboard/summary',
 } as const;
