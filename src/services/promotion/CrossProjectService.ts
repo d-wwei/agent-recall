@@ -114,7 +114,7 @@ export class CrossProjectService {
       now,
     );
 
-    logger.debug('CROSS-PROJECT', `Promoted pattern "${pattern.pattern}" to global (${pattern.projects.length} projects)`);
+    logger.debug('CROSS_PROJECT', `Promoted pattern "${pattern.pattern}" to global (${pattern.projects.length} projects)`);
   }
 
   /**

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Observation, Summary, UserPrompt } from '../types';
 
-type ViewMode = 'timeline' | 'sessions';
+type ViewMode = 'timeline' | 'sessions' | 'dashboard';
 type TypeFilter = 'all' | 'observations' | 'summaries' | 'prompts';
 
 interface ToolbarProps {
@@ -66,6 +66,15 @@ export function Toolbar({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
               <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+          </button>
+          <button
+            className={viewMode === 'dashboard' ? 'on' : ''}
+            onClick={() => onViewModeChange('dashboard')}
+            title="Dashboard"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>
             </svg>
           </button>
         </div>
