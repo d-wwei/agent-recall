@@ -27,6 +27,78 @@
 
 ### Tier 1：高优先级（直接提升用户体验）
 
+#### 1.0 一键安装 + 多平台适配器分发
+
+**现状**：安装需要 clone → bun install → npm run build-and-sync，门槛太高。各平台 hook 适配器（Cursor/Codex/Gemini/OpenCode）格式不统一，没有统一的安装流程。用户无法把一个链接发给 Agent 就完成安装。
+
+**目标体验**：
+
+```bash
+# 主程序安装（一句话）
+curl -fsSL https://raw.githubusercontent.com/d-wwei/agent-recall/main/install.sh | bash
+
+# 或通过 npx
+npx agent-recall install
+
+# 给其他 Agent 装适配器（一句话）
+npx agent-recall adapter install cursor
+npx agent-recall adapter install codex
+npx agent-recall adapter install gemini
+```
+
+**需要做的事**：
+
+| 组件 | 说明 |
+|------|------|
+| `install.sh` | curl 一键安装脚本：检测环境 → 安装 Bun → clone → build → 注册 Claude Code hooks |
+| `npx agent-recall` CLI | npm 全局命令，支持 `install` / `adapter install <platform>` / `adapter list` / `status` |
+| 适配器标准化 | 每个平台一个独立目录：`adapters/{cursor,codex,gemini,opencode}/`，统一结构（hooks.json + install.sh + README） |
+| 安装检测 | `npx agent-recall doctor` — 检查主程序、Worker、各平台适配器、DB 状态 |
+| Agent 可读安装指南 | `INSTALL.md` — 写给 AI Agent 看的安装文档（结构化、无歧义，Agent 可以直接按步骤执行） |
+
+**发给 Agent 的一句话**：
+```
+"安装 Agent Recall 记忆系统：npx agent-recall install && npx agent-recall adapter install cursor"
+```
+
+**改动量**：中 | **价值**：极高 — 直接降低获客门槛，让"给 Agent 发一句话就能装好"成为现实
+
+---
+
+#### 1.01 Agent 权限管理（IBAC）
+
+**现状**：所有连接到 Worker 的 Agent 都能读写所有数据，零权限控制。
+
+**目标**：基于 Agent 身份的访问控制，支持：
+- 某些 Agent 可以访问所有记忆（admin）
+- 某些 Agent 只能访问指定项目的记忆（project-scoped）
+- 某些 Agent 只读不写（read-only）
+
+**设计**：
+
+```
+Agent 请求 → Worker HTTP API → AuthMiddleware（检查 X-Agent-Id header）
+                                    │
+                                    ├─ 查 agent_access_policies 表
+                                    ├─ 匹配权限级别: admin / project-rw / project-ro / global-only
+                                    └─ 过滤查询范围 or 返回 403
+```
+
+**权限级别**：
+
+| 级别 | 读 | 写 | 编译 | 范围 | 适合 |
+|------|---|---|------|------|------|
+| admin | 全部 | 全部 | 是 | 所有项目+全局 | 主力 Agent |
+| project-rw | 指定项目 | 指定项目 | 否 | 项目级 | 项目专属 Agent |
+| project-ro | 指定项目 | 否 | 否 | 项目级 | 审查 Agent |
+| global-only | 全局 | 否 | 否 | 全局 | 通用助手 |
+
+**需要新增**：`agent_access_policies` 表、`AuthMiddleware`、`AgentRegistry`、CLI 管理命令、hook 适配器传 agent ID
+
+**改动量**：大 | **价值**：高 — 安全基础，多 Agent 协作的前提
+
+---
+
 #### 1.1 AI 驱动的知识编译升级
 
 **现状**：`ConsolidateStage.ts` 使用文本拼接 + 去重（MVP），没有语义理解能力。
