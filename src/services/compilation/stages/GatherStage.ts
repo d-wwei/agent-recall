@@ -38,8 +38,14 @@ export class GatherStage {
       return [];
     }
 
+    // Incremental cache: skip observations already compiled into knowledge pages
+    const compiledSourceIds = this.getCompiledSourceIds(ctx);
+    const uncached = compiledSourceIds.size > 0
+      ? rows.filter(obs => !compiledSourceIds.has(obs.id))
+      : rows;
+
     // Privacy filter
-    const filtered = this.privacyGuard.filterForCompilation(rows);
+    const filtered = this.privacyGuard.filterForCompilation(uncached);
 
     // Group by first concept
     const groupMap = new Map<string, ObservationRow[]>();
@@ -61,6 +67,35 @@ export class GatherStage {
     }
 
     return groups;
+  }
+
+  /**
+   * Collect observation IDs that have already been compiled into knowledge pages.
+   * Used to skip re-processing and avoid redundant compilation work.
+   */
+  private getCompiledSourceIds(ctx: CompilationContext): Set<number> {
+    const ids = new Set<number>();
+    try {
+      const existingPages = ctx.db.prepare(
+        'SELECT source_observation_ids FROM compiled_knowledge WHERE project = ? AND valid_until IS NULL'
+      ).all(ctx.project) as { source_observation_ids: string }[];
+
+      for (const page of existingPages) {
+        try {
+          const parsed = JSON.parse(page.source_observation_ids);
+          if (Array.isArray(parsed)) {
+            for (const id of parsed) {
+              if (typeof id === 'number') ids.add(id);
+            }
+          }
+        } catch {
+          // Malformed JSON — skip this page
+        }
+      }
+    } catch {
+      // Table may not exist — return empty set
+    }
+    return ids;
   }
 
   /**

@@ -322,6 +322,53 @@ describe('GatherStage', () => {
     expect(result[0].observations).toHaveLength(1);
     expect(result[0].observations[0].title).toBe('Our project');
   });
+
+  it('skips observations already compiled into knowledge pages (incremental cache)', () => {
+    const id1 = insertObservation(db, { concepts: ['auth'], title: 'Already compiled' });
+    const id2 = insertObservation(db, { concepts: ['auth'], title: 'New observation' });
+
+    // Simulate id1 already compiled into a knowledge page
+    db.prepare(
+      `INSERT INTO compiled_knowledge (project, topic, content, source_observation_ids, compiled_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(PROJECT, 'auth', 'Old content', JSON.stringify([id1]), new Date().toISOString());
+
+    const stage = new GatherStage();
+    const result = stage.execute({ project: PROJECT, db, lastCompilationEpoch: 0 });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].observations).toHaveLength(1);
+    expect(result[0].observations[0].title).toBe('New observation');
+  });
+
+  it('includes all observations when no compiled_knowledge exists', () => {
+    insertObservation(db, { concepts: ['auth'], title: 'Obs 1' });
+    insertObservation(db, { concepts: ['auth'], title: 'Obs 2' });
+
+    const stage = new GatherStage();
+    const result = stage.execute({ project: PROJECT, db, lastCompilationEpoch: 0 });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].observations).toHaveLength(2);
+  });
+
+  it('does not skip observations from expired knowledge pages (valid_until set)', () => {
+    const id1 = insertObservation(db, { concepts: ['auth'], title: 'In expired page' });
+
+    // Simulate id1 in an expired knowledge page
+    db.prepare(
+      `INSERT INTO compiled_knowledge (project, topic, content, source_observation_ids, compiled_at, valid_until)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(PROJECT, 'auth', 'Expired', JSON.stringify([id1]), new Date().toISOString(), new Date().toISOString());
+
+    const stage = new GatherStage();
+    const result = stage.execute({ project: PROJECT, db, lastCompilationEpoch: 0 });
+
+    // Should NOT be filtered — the page expired so the observation needs recompilation
+    expect(result).toHaveLength(1);
+    expect(result[0].observations).toHaveLength(1);
+    expect(result[0].observations[0].title).toBe('In expired page');
+  });
 });
 
 describe('ConsolidateStage', () => {
