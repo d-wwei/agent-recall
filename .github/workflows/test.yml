@@ -43,6 +43,9 @@ jobs:
           --path-ignore-patterns "**/worker-json-status*"
           --path-ignore-patterns "**/plugin-distribution*"
           --path-ignore-patterns "**/project-filter*"
+          --path-ignore-patterns "**/seekdb-sync*"
+          --path-ignore-patterns "**/seekdb-poc*"
+          --path-ignore-patterns "**/backup-service*"
 
       - name: Upload coverage artifact
         if: always()
