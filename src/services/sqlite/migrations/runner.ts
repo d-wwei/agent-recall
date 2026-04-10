@@ -51,6 +51,7 @@ export class MigrationRunner {
     this.createMarkdownSyncTable(); // migration 37
     this.createActivityLogTable(); // migration 38
     this.addSessionPrivacyColumn(); // migration 39
+    this.addObservationPropagatedColumn(); // migration 40
   }
 
   /**
@@ -1400,5 +1401,23 @@ export class MigrationRunner {
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(39, new Date().toISOString());
     logger.debug('DB', 'has_private_content column added to sdk_sessions');
+  }
+
+  /**
+   * Add propagated column to observations for multi-agent coordination (migration 40)
+   */
+  private addObservationPropagatedColumn(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(40);
+    if (applied) return;
+
+    const columns = this.db.prepare('PRAGMA table_info(observations)').all() as { name: string }[];
+    const hasColumn = columns.some(c => c.name === 'propagated');
+
+    if (!hasColumn) {
+      this.db.exec('ALTER TABLE observations ADD COLUMN propagated INTEGER DEFAULT 0');
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(40, new Date().toISOString());
+    logger.debug('DB', 'propagated column added to observations');
   }
 }
