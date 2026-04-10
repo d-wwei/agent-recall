@@ -93,6 +93,7 @@ function createTestDb(): Database {
       compiled_at TEXT,
       valid_until TEXT,
       superseded_by INTEGER,
+      evidence_timeline TEXT DEFAULT '[]',
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX idx_ck_project ON compiled_knowledge(project);
@@ -450,6 +451,43 @@ describe('ConsolidateStage', () => {
     expect(restApiCount).toBe(1); // deduplication works
   });
 
+  it('builds evidence_timeline from source observations', () => {
+    const now = Date.now();
+    const groups: TopicGroup[] = [{
+      topic: 'auth',
+      observations: [
+        { id: 10, type: 'discovery', title: 'Found JWT', subtitle: null, narrative: 'Uses RS256 algorithm for signing', facts: '[]', concepts: '["auth"]', project: PROJECT, created_at_epoch: now - 5000 },
+        { id: 20, type: 'bugfix', title: 'Fixed token refresh', subtitle: null, narrative: null, facts: '[]', concepts: '["auth"]', project: PROJECT, created_at_epoch: now },
+      ],
+    }];
+
+    const stage = new ConsolidateStage();
+    const ctx: CompilationContext = { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 };
+    const pages = stage.execute(groups, new Map(), ctx);
+
+    expect(pages[0].evidenceTimeline).toHaveLength(2);
+    expect(pages[0].evidenceTimeline[0].observationId).toBe(10);
+    expect(pages[0].evidenceTimeline[0].type).toBe('discovery');
+    expect(pages[0].evidenceTimeline[0].title).toBe('Found JWT');
+    expect(pages[0].evidenceTimeline[0].summary).toBe('Uses RS256 algorithm for signing');
+    expect(pages[0].evidenceTimeline[1].observationId).toBe(20);
+    expect(pages[0].evidenceTimeline[1].summary).toBe('');
+  });
+
+  it('truncates evidence_timeline summary to 100 chars', () => {
+    const longNarrative = 'A'.repeat(200);
+    const groups: TopicGroup[] = [{
+      topic: 'test',
+      observations: [
+        { id: 1, type: 'discovery', title: 'Test', subtitle: null, narrative: longNarrative, facts: '[]', concepts: '["test"]', project: PROJECT, created_at_epoch: Date.now() },
+      ],
+    }];
+
+    const stage = new ConsolidateStage();
+    const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
+    expect(pages[0].evidenceTimeline[0].summary.length).toBe(100);
+  });
+
   it('produces all three sections when observations span types', () => {
     const groups: TopicGroup[] = [{
       topic: 'project',
@@ -771,6 +809,37 @@ describe('CompilationEngine (full pipeline)', () => {
 
     expect(page).toBeTruthy();
     expect(page.content).toContain('General observation');
+  });
+
+  it('persists evidence_timeline in compiled_knowledge', async () => {
+    const engine = createTestEngine(db);
+
+    insertObservation(db, {
+      concepts: ['auth'],
+      type: 'discovery',
+      title: 'JWT pattern',
+      narrative: 'Uses RS256',
+    });
+    insertObservation(db, {
+      concepts: ['auth'],
+      type: 'bugfix',
+      title: 'Fixed token refresh',
+    });
+
+    const result = await engine.tryCompile(PROJECT);
+    expect(result).not.toBeNull();
+    expect(result!.pagesCreated).toBe(1);
+
+    const page = db.prepare(
+      'SELECT evidence_timeline FROM compiled_knowledge WHERE project = ? AND topic = ?'
+    ).get(PROJECT, 'auth') as any;
+
+    const timeline = JSON.parse(page.evidence_timeline);
+    expect(timeline).toHaveLength(2);
+    expect(timeline[0].type).toBe('discovery');
+    expect(timeline[0].title).toBe('JWT pattern');
+    expect(timeline[1].type).toBe('bugfix');
+    expect(timeline[1].title).toBe('Fixed token refresh');
   });
 
   it('does not compile observations from other projects', async () => {

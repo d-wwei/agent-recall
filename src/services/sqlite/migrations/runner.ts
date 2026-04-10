@@ -54,6 +54,7 @@ export class MigrationRunner {
     this.addObservationPropagatedColumn(); // migration 40
     this.createSharedKnowledgeTable(); // migration 41
     this.createCompilationLogsTable(); // migration 42
+    this.addEvidenceTimelineColumn(); // migration 43
   }
 
   /**
@@ -1474,5 +1475,25 @@ export class MigrationRunner {
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(42, new Date().toISOString());
     logger.debug('DB', 'compilation_logs table created');
+  }
+
+  /**
+   * Add evidence_timeline column to compiled_knowledge (migration 43)
+   *
+   * Stores a JSON array of evidence entries linking compiled knowledge
+   * back to the source observations that formed it — audit trail.
+   */
+  private addEvidenceTimelineColumn(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(43);
+    if (applied) return;
+
+    const tableInfo = this.db.prepare('PRAGMA table_info(compiled_knowledge)').all() as { name: string }[];
+    const has = tableInfo.some((c: any) => c.name === 'evidence_timeline');
+    if (!has) {
+      this.db.exec("ALTER TABLE compiled_knowledge ADD COLUMN evidence_timeline TEXT DEFAULT '[]'");
+      logger.debug('DB', 'Added evidence_timeline column to compiled_knowledge');
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(43, new Date().toISOString());
   }
 }

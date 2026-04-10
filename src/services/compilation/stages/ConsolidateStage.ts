@@ -16,7 +16,7 @@
  */
 
 import type { CompiledKnowledgeRow } from './OrientStage.js';
-import type { TopicGroup, ObservationRow, CompiledPage, CompilationContext } from '../types.js';
+import type { TopicGroup, ObservationRow, CompiledPage, CompilationContext, EvidenceEntry } from '../types.js';
 
 // ─── Classification mapping ────────────────────────────────────────────────
 
@@ -115,12 +115,22 @@ export class ConsolidateStage {
       const classifications = new Set(group.observations.map(o => classifyObservation(o)));
       const confidence = classifications.size === 1 ? 'high' : 'medium';
 
+      // Build evidence timeline from source observations
+      const evidenceTimeline: EvidenceEntry[] = group.observations.map(obs => ({
+        observationId: obs.id,
+        date: obs.created_at_epoch,
+        type: obs.type,
+        title: obs.title,
+        summary: (obs.narrative || '').substring(0, 100),
+      }));
+
       pages.push({
         topic: group.topic,
         content,
         sourceObservationIds: allIds,
         confidence,
         classification,
+        evidenceTimeline,
       });
     }
 
