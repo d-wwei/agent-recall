@@ -1,6 +1,6 @@
 # Agent Recall — 项目全景文档
 
-> 版本：v1.0.0-rc.1
+> 版本：v1.0.0-rc.2
 > 更新：2026-04-10
 > 仓库：https://github.com/d-wwei/agent-recall
 
@@ -97,7 +97,8 @@ Fork 自 [claude-mem](https://github.com/thedotmack/claude-mem) v10.6.2（Alex N
 | 原始优化（38项） | 37 | 37 | **100%** |
 | Roadmap（14项） | 14 | 14 | **100%** |
 | 跨项目优化（5项） | 5 | 5 | **100%** |
-| **总计** | **57** | **57** | **100%** |
+| 断点中继强化（5项） | 5 | 5 | **100%** |
+| **总计** | **62** | **62** | **100%** |
 
 唯一未实施：8.2 seekdb 作为 SQLite 的完全替代（已用 seekdb 做嵌入式向量搜索，但 SQLite 仍用于结构化数据）。这是有意的架构决策，不是遗漏。
 
@@ -105,23 +106,23 @@ Fork 自 [claude-mem](https://github.com/thedotmack/claude-mem) v10.6.2（Alex N
 
 | 指标 | 数值 |
 |------|------|
-| TypeScript 源文件 | 253 个 |
-| 测试文件 | 146 个 |
-| 测试数量 | **2,737 pass, 0 fail** |
-| 服务模块目录 | 31 个 |
-| 数据库表 | 42 张 |
-| Migration 版本 | 4 → 43（40 个迁移） |
-| 新增代码量 | ~35,500 行 |
+| TypeScript 源文件 | 258 个 |
+| 测试文件 | 151 个 |
+| 测试数量 | **2,871 pass, 0 fail** |
+| 服务模块目录 | 52 个 |
+| 数据库表 | 44 张 |
+| Migration 版本 | 4 → 45（42 个迁移） |
+| 新增代码量 | ~40,000 行 |
 
 ### 3.3 距离设计目标的差距
 
-**核心功能层面**：设计目标 100% 达成。所有 57 项优化全部有代码实现和测试。
+**核心功能层面**：设计目标 100% 达成。所有 62 项优化全部有代码实现和测试。
 
-**生产就绪层面**：仍有差距。
+**生产就绪层面**：仍有小幅差距。
 
 | 差距 | 说明 | 严重程度 |
 |------|------|---------|
-| AI 编译是文本合并 | ConsolidateStage 用结构化文本合并（Status/Facts/Timeline），不是真正的 LLM 调用 | 中 — 功能正确但智能度不足 |
+| AI 编译是文本合并 | ConsolidateStage 用结构化文本合并（Status/Facts/Timeline），不是真正的 LLM 调用。已有 `buildAIResumePrompt` 模板待接入 | 中 — 功能正确但智能度不足 |
 | Viewer UI 基础 | Dashboard 组件已加但无图表库，知识图谱无可视化 | 低 — 后端 API 全部就绪 |
 | 实体提取是规则式 | EntityExtractor 用正则提取而非 NER 模型 | 低 — 对常见模式足够 |
 | seekdb 向量搜索 CI 跳过 | native addon 在 GitHub Actions 超时 | 低 — 本地全过 |
@@ -178,6 +179,12 @@ agent-recall/
 │   │   │   ├── PersonaService.ts  # 档案 CRUD
 │   │   │   └── CompletenessChecker.ts # 完整度检测
 │   │   ├── promotion/             # 跨项目知识提升
+│   │   ├── recovery/              # 断点中继与 Session 恢复
+│   │   │   ├── CheckpointService.ts       # 自动 checkpoint（每次工具调用）
+│   │   │   ├── StructuredSummaryBuilder.ts # 结构化 session 摘要
+│   │   │   ├── NarrativeRecallEngine.ts   # 连贯叙事回想引擎
+│   │   │   ├── StaleBufferRecovery.ts     # 启动时残留数据恢复
+│   │   │   └── EmergencySave.ts           # 信号中断紧急保存
 │   │   ├── sqlite/                # 数据库层
 │   │   │   ├── Database.ts        # SQLite 初始化（WAL + busy_timeout）
 │   │   │   ├── SessionStore.ts    # 2500 行主 CRUD
@@ -456,7 +463,49 @@ agent_diary (memory_session_id, project, entry)
 
 **辅助表**：observation_buffer, observation_links, sync_state, markdown_sync, activity_log, compilation_logs, shared_knowledge, audit_log, bootstrap_state, active_tasks, templates, pending_messages, session_archives, user_prompts, sync_policies, schema_versions
 
-### 5.6 并发模型
+### 5.6 断点中继与 Session 恢复（5 层防护）
+
+```
+第 1 层：每次工具调用 — Checkpoint 自动存档
+│  CheckpointService.buildSmartCheckpoint():
+│  ├─ 从 user_prompts 提取当前任务（清理前缀）
+│  ├─ 构建 taskHistory: 每个用户请求的完成/未完成状态
+│  ├─ 聚合 filesModified / filesRead / testStatus
+│  ├─ 检测 pendingWork（TODO/WIP/失败测试/未回应的请求）
+│  └─ 生成 resumeHint（优先级：测试失败 > 未完成请求 > 最近文件）
+│
+第 2 层：Session 正常结束 — StructuredSummary 分类整理
+│  StructuredSummaryBuilder.buildFromSession():
+│  ├─ tasksCompleted / tasksInProgress / decisionsMade / blockers / keyDiscoveries
+│  ├─ buildEnhancedResumeContext（6 级优先级）:
+│  │   1. 进行中的任务
+│  │   2. 阻塞项
+│  │   3. 最近改的文件（含"挣扎信号"：同文件改 3 次+）
+│  │   4. 重要决策
+│  │   5. 原始 next_steps
+│  │   6. 完成项汇总
+│  └─ 清除 checkpoint（summary 接管恢复职责）
+│
+第 3 层：终端异常关闭 — EmergencySave 紧急保存
+│  SIGTERM / SIGHUP / SIGINT 触发:
+│  ├─ flush 所有 WriteBuffer 到主表
+│  ├─ 为每个 active session 存 checkpoint
+│  ├─ resumeHint 标注 "interrupted by terminal close"
+│  └─ session 状态标记为 'interrupted'
+│
+第 4 层：下次 Worker 启动 — StaleBufferRecovery 残留清理
+│  ├─ 检测 observation_buffer 中的孤儿数据
+│  ├─ 自动 flush 到 observations 主表
+│  └─ 相关 session 标记为 'interrupted'
+│
+第 5 层：下次 SessionStart — ContextBuilder 智能注入
+│  ├─ 检测到 'interrupted' session → "⚠️ 上次被意外中断，数据已恢复"
+│  ├─ 有 checkpoint → 注入任务、文件、测试状态、待办
+│  ├─ 有 structured_summary → 注入 resumeContext
+│  └─ NarrativeRecallEngine 支持 /api/recall 连贯叙事查询
+```
+
+### 5.7 并发模型
 
 多个 Claude Code session 可以同时运行：
 
