@@ -147,14 +147,45 @@
 
 ---
 
-#### 3.2 团队知识库
+#### 3.2 团队知识共享（跨机器同步）
 
-**场景**：团队内多人共享项目知识。
+**场景**：团队内多人（多台电脑）共享项目知识。目前同一台电脑上的 Claude Code / Cursor / Gemini CLI 已共享同一 DB，但不同电脑之间无法自动同步。
 
-**方向**：
-- `compiled_knowledge` 按 user 隔离，team 级别的知识页需要显式共享
-- Git-based 同步：`~/.agent-recall/readable/` 目录可 git push 到团队仓库
-- 权限模型：谁可以读/写/编译团队知识
+**当前基础设施**（已建好但未打通）：
+- `TeamKnowledgeService` — 发布/获取/导入共享知识页（`shared_knowledge` 表）
+- `MarkdownExporter/Importer` — 双向 Markdown 同步（`~/.agent-recall/readable/`）
+- `CrossProjectService` — 跨项目模式识别
+
+**缺失的最后一公里**：没有跨机器传输通道。
+
+**方向 A：Git-Based 同步（推荐先做，轻量）**
+- MarkdownExporter 自动导出编译知识到项目仓库的 `.agent-recall-shared/` 目录
+- `git push/pull` 天然同步到团队成员
+- 同事机器上的 MarkdownImporter 在 SessionStart 时检测并自动导入
+- 共享粒度：**项目级**（跟随 git 仓库）
+- 优点：零基础设施，复用现有 git 工作流
+- 缺点：延迟高（取决于 push/pull 频率），冲突处理依赖 git merge
+
+**方向 B：Worker P2P 同步（未来，实时）**
+- 每台机器的 Worker Service 暴露同步端口
+- 局域网 mDNS 自动发现对等节点
+- 编译知识页变更自动广播（CRDT 或 last-write-wins）
+- 共享粒度：**项目级 + 全局级**
+- 优点：实时，自动，无 git 依赖
+- 缺点：网络配置复杂，CRDT 冲突解决难度高
+
+**共享层级设计**：
+
+| 层级 | 内容 | 共享方式 |
+|------|------|---------|
+| **全局** | 用户通用偏好（"总是用 TypeScript strict"） | 不共享（个人配置） |
+| **项目** | 编译知识页、实体、事实 | Git-based 或 P2P 同步 |
+| **Session** | 原始 observations、checkpoints | 不共享（太细粒度） |
+
+**权限模型**：
+- 知识页默认"仅自己可见"
+- 显式发布（`TeamKnowledgeService.shareKnowledge()`）后才进入共享池
+- 导入方需确认（不自动覆盖本地知识）
 
 ---
 
