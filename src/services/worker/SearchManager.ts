@@ -167,7 +167,7 @@ export class SearchManager {
         chromaScore,
         ftsScore: 0, // FTS5 text search not active; Chroma-only path
         type: obs.type,
-        lastReferencedAt: (obs as any).last_referenced_at ?? null,
+        lastReferencedAt: obs.last_referenced_at ?? null,
         createdAtEpoch: obs.created_at_epoch,
       };
     });

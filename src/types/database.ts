@@ -59,7 +59,11 @@ export interface SdkSessionRecord {
 }
 
 /**
- * Observation database record
+ * Observation database record — unified with all 22 columns from the observations table.
+ *
+ * Core fields are required; enrichment fields added by later migrations are optional.
+ * Phase 1 fields: confidence, tags, has_preference, event_date, last_referenced_at
+ * Phase 3 fields: valid_until, superseded_by, related_observations
  */
 export interface ObservationRecord {
   id: number;
@@ -69,11 +73,27 @@ export interface ObservationRecord {
   type: 'decision' | 'bugfix' | 'feature' | 'refactor' | 'discovery' | 'change';
   created_at: string;
   created_at_epoch: number;
-  title?: string;
-  concept?: string;
-  source_files?: string;
-  prompt_number?: number;
+  title?: string | null;
+  subtitle?: string | null;
+  facts?: string | null;           // JSON array of fact strings
+  narrative?: string | null;
+  concepts?: string | null;        // JSON array of concept strings
+  files_read?: string | null;      // JSON array of file paths
+  files_modified?: string | null;  // JSON array of file paths
+  prompt_number?: number | null;
   discovery_tokens?: number;
+  content_hash?: string | null;
+  scope?: string;                  // 'project' | 'global', default 'project'
+  // Phase 1 enrichment fields
+  confidence?: string | null;      // 'high' | 'medium' | 'low'
+  tags?: string | null;            // JSON array of tag strings
+  has_preference?: number;         // 0 | 1
+  event_date?: string | null;
+  last_referenced_at?: string | null;
+  // Phase 3 lifecycle fields
+  valid_until?: string | null;
+  superseded_by?: number | null;
+  related_observations?: string | null;  // JSON array of observation IDs
 }
 
 /**
@@ -121,19 +141,10 @@ export interface LatestPromptResult {
 }
 
 /**
- * Observation with context (for time-based queries)
+ * Observation with context (for time-based queries).
+ * Extends ObservationRecord — kept as a separate interface for backward compatibility.
  */
-export interface ObservationWithContext {
-  id: number;
-  memory_session_id: string;
-  project: string;
-  text: string | null;
-  type: string;
-  created_at: string;
-  created_at_epoch: number;
-  title?: string;
-  concept?: string;
-  source_files?: string;
-  prompt_number?: number;
-  discovery_tokens?: number;
+export interface ObservationWithContext extends ObservationRecord {
+  // No additional fields — inherits all from ObservationRecord.
+  // Preserves the `type: string` widening for contexts where exact type union is not enforced.
 }
