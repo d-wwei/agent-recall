@@ -40,6 +40,8 @@ export interface GracefulShutdownConfig {
   mcpClient?: CloseableClient;
   dbManager?: CloseableDatabase;
   chromaMcpManager?: StoppableService;
+  /** Optional emergency save callback — runs BEFORE anything else during shutdown */
+  onEmergencySave?: () => void;
 }
 
 /**
@@ -51,6 +53,15 @@ export interface GracefulShutdownConfig {
  */
 export async function performGracefulShutdown(config: GracefulShutdownConfig): Promise<void> {
   logger.info('SYSTEM', 'Shutdown initiated');
+
+  // STEP 0: Emergency save — flush buffers and save checkpoints BEFORE anything closes
+  if (config.onEmergencySave) {
+    try {
+      config.onEmergencySave();
+    } catch (err) {
+      logger.error('SYSTEM', 'Emergency save failed during shutdown', {}, err as Error);
+    }
+  }
 
   // STEP 1: Close HTTP server first
   if (config.server) {

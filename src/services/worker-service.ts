@@ -141,6 +141,7 @@ import { DataRetentionService } from './cleanup/DataRetentionService.js';
 import { CheckpointService } from './recovery/CheckpointService.js';
 import { NarrativeRecallEngine } from './recovery/NarrativeRecallEngine.js';
 import { recoverStaleBuffers } from './recovery/StaleBufferRecovery.js';
+import { performEmergencySave } from './recovery/EmergencySave.js';
 
 // Process management for zombie cleanup (Issue #737)
 import { startOrphanReaper, reapOrphanedProcesses, getProcessBySession, ensureProcessExit } from './worker/ProcessRegistry.js';
@@ -1169,7 +1170,19 @@ export class WorkerService {
       sessionManager: this.sessionManager,
       mcpClient: this.mcpClient,
       dbManager: this.dbManager,
-      chromaMcpManager: this.chromaMcpManager || undefined
+      chromaMcpManager: this.chromaMcpManager || undefined,
+      onEmergencySave: () => {
+        // Emergency save: flush buffers and save checkpoints before everything shuts down
+        if (this.initializationCompleteFlag) {
+          try {
+            performEmergencySave(this.dbManager.getSessionStore().db);
+          } catch (err) {
+            logger.warn('SYSTEM', 'Emergency save in shutdown callback failed', {
+              error: err instanceof Error ? err.message : String(err)
+            });
+          }
+        }
+      }
     });
   }
 
