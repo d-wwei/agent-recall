@@ -56,6 +56,7 @@ export class MigrationRunner {
     this.createCompilationLogsTable(); // migration 42
     this.addEvidenceTimelineColumn(); // migration 43
     this.addStructuredSummaryColumn(); // migration 44
+    this.addInterruptedSessionStatus(); // migration 45
   }
 
   /**
@@ -1515,5 +1516,82 @@ export class MigrationRunner {
     }
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(44, new Date().toISOString());
+  }
+
+  /**
+   * Add 'interrupted' to sdk_sessions status CHECK constraint (migration 45)
+   *
+   * When the user closes the terminal unexpectedly, sessions are left in 'active'
+   * state. The stale buffer recovery system marks them as 'interrupted' so the
+   * ContextBuilder can warn the user on next startup. SQLite requires table
+   * recreation to modify CHECK constraints.
+   */
+  private addInterruptedSessionStatus(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(45);
+    if (applied) return;
+
+    logger.debug('DB', 'Adding interrupted status to sdk_sessions CHECK constraint');
+
+    // Get current column list to ensure we copy all columns
+    const tableInfo = this.db.prepare('PRAGMA table_info(sdk_sessions)').all() as TableColumnInfo[];
+    const columnNames = tableInfo.map(col => col.name);
+
+    // Only proceed if the status column exists and has the old constraint
+    if (!columnNames.includes('status')) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(45, new Date().toISOString());
+      return;
+    }
+
+    this.db.run('PRAGMA foreign_keys = OFF');
+    this.db.run('BEGIN TRANSACTION');
+
+    try {
+      // Clean up leftover temp table from a previously-crashed run
+      this.db.run('DROP TABLE IF EXISTS sdk_sessions_new');
+
+      // Build column definitions dynamically from current schema
+      const colDefs = tableInfo.map(col => {
+        if (col.name === 'status') {
+          // Updated CHECK constraint with 'interrupted' added
+          return "status TEXT CHECK(status IN ('active', 'completed', 'failed', 'interrupted')) NOT NULL DEFAULT 'active'";
+        }
+        // Reconstruct column definition from PRAGMA info
+        let def = `${col.name} ${col.type}`;
+        if (col.notnull) def += ' NOT NULL';
+        if (col.dflt_value !== null) def += ` DEFAULT ${col.dflt_value}`;
+        if (col.pk) def += ' PRIMARY KEY AUTOINCREMENT';
+        return def;
+      });
+
+      // Add UNIQUE constraints (not captured by PRAGMA table_info)
+      // content_session_id and memory_session_id have UNIQUE constraints
+      const createSQL = `CREATE TABLE sdk_sessions_new (${colDefs.join(', ')}, UNIQUE(content_session_id), UNIQUE(memory_session_id))`;
+      this.db.run(createSQL);
+
+      // Copy all data
+      const cols = columnNames.join(', ');
+      this.db.run(`INSERT INTO sdk_sessions_new SELECT ${cols} FROM sdk_sessions`);
+
+      // Drop old table and rename
+      this.db.run('DROP TABLE sdk_sessions');
+      this.db.run('ALTER TABLE sdk_sessions_new RENAME TO sdk_sessions');
+
+      // Recreate indexes
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_sdk_sessions_claude_id ON sdk_sessions(content_session_id)');
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_sdk_sessions_sdk_id ON sdk_sessions(memory_session_id)');
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_sdk_sessions_project ON sdk_sessions(project)');
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_sdk_sessions_status ON sdk_sessions(status)');
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_sdk_sessions_started ON sdk_sessions(started_at_epoch DESC)');
+
+      this.db.run('COMMIT');
+    } catch (err) {
+      this.db.run('ROLLBACK');
+      throw err;
+    } finally {
+      this.db.run('PRAGMA foreign_keys = ON');
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(45, new Date().toISOString());
+    logger.debug('DB', 'Added interrupted status to sdk_sessions CHECK constraint');
   }
 }

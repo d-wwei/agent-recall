@@ -114,7 +114,8 @@ function buildContextOutput(
   budgetManager?: TokenBudgetManager,
   completenessHints?: string[],
   compiledKnowledge?: any[],
-  checkpoint?: Checkpoint | null
+  checkpoint?: Checkpoint | null,
+  lastSessionInterrupted?: boolean
 ): string {
   const output: string[] = [];
 
@@ -156,6 +157,22 @@ function buildContextOutput(
         budgetManager.consume('L1', taskTokens);
       }
     }
+  }
+
+  // Agent Recall: Warn if last session was interrupted (terminal closed unexpectedly)
+  if (lastSessionInterrupted) {
+    const interruptedLines = useColors
+      ? [
+          `\x1b[33m\x1b[1m> Warning: Your last session was interrupted (terminal closed unexpectedly).\x1b[0m`,
+          `\x1b[33m> Observations were recovered. Check the checkpoint above for where you left off.\x1b[0m`,
+          '',
+        ]
+      : [
+          '> **Warning:** Your last session was interrupted (terminal closed unexpectedly).',
+          '> Observations were recovered. Check the checkpoint above for where you left off.',
+          '',
+        ];
+    output.push(...interruptedLines);
   }
 
   // Agent Recall: Inject checkpoint context for session resume (L1)
@@ -521,6 +538,20 @@ export async function generateContext(
       // Non-blocking: checkpoint loading failure shouldn't break context generation
     }
 
+    // Check if last session was interrupted (terminal closed unexpectedly)
+    let lastSessionInterrupted = false;
+    try {
+      const lastSession = db.db.prepare(
+        "SELECT status, content_session_id FROM sdk_sessions WHERE project = ? ORDER BY started_at_epoch DESC LIMIT 1"
+      ).get(project) as { status: string; content_session_id: string } | undefined;
+
+      if (lastSession?.status === 'interrupted') {
+        lastSessionInterrupted = true;
+      }
+    } catch {
+      // Non-blocking: interrupted check failure shouldn't break context generation
+    }
+
     // Build and return context
     const output = buildContextOutput(
       project,
@@ -536,7 +567,8 @@ export async function generateContext(
       budgetManager,
       completenessHints,
       compiledKnowledge,
-      checkpoint
+      checkpoint,
+      lastSessionInterrupted
     );
 
     return output;

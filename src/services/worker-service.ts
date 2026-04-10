@@ -140,6 +140,7 @@ import { PromotionService } from './promotion/PromotionService.js';
 import { DataRetentionService } from './cleanup/DataRetentionService.js';
 import { CheckpointService } from './recovery/CheckpointService.js';
 import { NarrativeRecallEngine } from './recovery/NarrativeRecallEngine.js';
+import { recoverStaleBuffers } from './recovery/StaleBufferRecovery.js';
 
 // Process management for zombie cleanup (Issue #737)
 import { startOrphanReaper, reapOrphanedProcesses, getProcessBySession, ensureProcessExit } from './worker/ProcessRegistry.js';
@@ -545,6 +546,18 @@ export class WorkerService {
       const resetCount = pendingStore.resetStaleProcessingMessages(0); // 0 = reset ALL processing
       if (resetCount > 0) {
         logger.info('SYSTEM', `Reset ${resetCount} stale processing messages to pending`);
+      }
+
+      // Recover stale observation buffers from interrupted sessions
+      try {
+        const recoveredCount = recoverStaleBuffers(this.dbManager.getSessionStore().db);
+        if (recoveredCount > 0) {
+          logger.info('SYSTEM', `Recovered ${recoveredCount} stale observations from interrupted sessions`);
+        }
+      } catch (err) {
+        logger.warn('SYSTEM', 'Stale buffer recovery failed (non-blocking)', {
+          error: err instanceof Error ? err.message : String(err)
+        });
       }
 
       // Initialize search services
