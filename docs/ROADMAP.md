@@ -65,11 +65,11 @@ npx agent-recall adapter install gemini
 
 ---
 
-#### 1.01 Agent 权限管理（IBAC）
+#### 1.01 Agent 权限管理（RBAC）
 
 **现状**：所有连接到 Worker 的 Agent 都能读写所有数据，零权限控制。
 
-**目标**：基于 Agent 身份的访问控制，支持：
+**目标**：基于角色的访问控制（Role-Based Access Control），支持：
 - 某些 Agent 可以访问所有记忆（admin）
 - 某些 Agent 只能访问指定项目的记忆（project-scoped）
 - 某些 Agent 只读不写（read-only）
