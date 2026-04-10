@@ -138,6 +138,7 @@ import { TemplateService } from './template/TemplateService.js';
 import { SessionArchiveService } from './archiving/SessionArchiveService.js';
 import { PromotionService } from './promotion/PromotionService.js';
 import { DataRetentionService } from './cleanup/DataRetentionService.js';
+import { CheckpointService } from './recovery/CheckpointService.js';
 
 // Process management for zombie cleanup (Issue #737)
 import { startOrphanReaper, reapOrphanedProcesses, getProcessBySession, ensureProcessExit } from './worker/ProcessRegistry.js';
@@ -382,6 +383,24 @@ export class WorkerService {
           // this ensures any queued observations are flushed to the AI summary pipeline
           if (session && !session.generatorPromise) {
             this.startSessionProcessor(session, 'incremental-save');
+          }
+
+          // Auto-checkpoint: save session state for resume continuity
+          try {
+            const checkpointService = new CheckpointService(store.db);
+            const sessionRow = store.getSessionById(sessionDbId);
+            const startEpoch = sessionRow?.created_at_epoch || 0;
+            const recentObs = store.getObservationsSinceEpoch(project, startEpoch);
+            // Get last user prompt for task description
+            const lastPrompt = store.getLatestUserPrompt(contentSessionId);
+            const checkpoint = checkpointService.buildCheckpointFromObservations(
+              project, contentSessionId, recentObs, lastPrompt?.content || null
+            );
+            checkpointService.saveCheckpoint(project, contentSessionId, checkpoint);
+          } catch (cpError) {
+            logger.warn('CHECKPOINT', 'Auto-checkpoint failed (non-blocking)', {
+              error: cpError instanceof Error ? cpError.message : String(cpError)
+            });
           }
         } catch (error) {
           // Background errors must not surface to the caller
