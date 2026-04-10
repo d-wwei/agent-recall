@@ -29,7 +29,7 @@ Agent Recall 将两者的最佳实践整合为一个统一系统。
 
 ### 血统
 
-Fork 自 [claude-mem](https://github.com/thedotmack/claude-mem) v10.6.2（Alex Newman），融合了 [claude-recall](https://github.com/d-wwei/claude-recall)（d-wwei）的设计模式。在原项目基础上重写了 90%+ 的核心逻辑。
+基于 [claude-recall](https://github.com/d-wwei/claude-recall)（d-wwei）的设计模式。在原项目基础上融合了 [MemPalace](https://github.com/milla-jovovich/mempalace)、[Karpathy LLM Wiki](https://github.com/karpathy/llm-wiki)、[gbrain](https://github.com/nicobailey/gbrain)、[graphify](https://github.com/graphify-ai/graphify)、[ex-brain](https://www.npmjs.com/package/ex-brain) 等多个开源项目的优秀设计，感谢开源社区的贡献。
 
 ---
 
