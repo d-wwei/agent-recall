@@ -21,6 +21,7 @@ import { OrientStage } from './stages/OrientStage.js';
 import { GatherStage } from './stages/GatherStage.js';
 import { ConsolidateStage } from './stages/ConsolidateStage.js';
 import { PruneStage } from './stages/PruneStage.js';
+import { EntityExtractor } from '../knowledge-graph/EntityExtractor.js';
 import type { CompilationContext, CompilationResult } from './types.js';
 
 export class CompilationEngine {
@@ -65,6 +66,17 @@ export class CompilationEngine {
 
       // 3. Gather — query, filter, group observations
       const groups = this.gather.execute(ctx);
+
+      // 3b. Entity extraction — populate knowledge graph from gathered observations
+      try {
+        const extractor = new EntityExtractor(this.db);
+        const allObs = groups.flatMap(g => g.observations);
+        for (const obs of allObs) {
+          extractor.extractFromObservation(obs, project);
+        }
+      } catch {
+        // Entity extraction is non-blocking — compilation continues on failure
+      }
 
       if (groups.length === 0) {
         // Nothing to compile — still a successful run, just empty
