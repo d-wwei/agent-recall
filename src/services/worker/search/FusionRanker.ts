@@ -27,6 +27,13 @@ const DECAY_WINDOW_DAYS = 180;
 const MAX_DECAY = 0.3;
 
 /**
+ * Reciprocal Rank Fusion constant.
+ * Controls how much top positions are favored over lower positions.
+ * Standard value from the RRF literature (Cormack, Clarke & Buettcher, 2009).
+ */
+export const RRF_K = 60;
+
+/**
  * Type weights for observation categories.
  * Higher = more relevant / authoritative.
  */
@@ -69,6 +76,20 @@ const SEMANTIC_PATTERNS = [
   /如何/,
 ];
 
+// ─── RRF Helper ──────────────────────────────────────────────────────────────
+
+/**
+ * Compute Reciprocal Rank Fusion score from ranks in multiple lists.
+ * A candidate appearing in both lists gets contributions from both.
+ * Rank is 0-based (0 = best). Null rank means not present in that list.
+ */
+export function computeRRFScore(chromaRank: number | null, ftsRank: number | null): number {
+  let score = 0;
+  if (chromaRank !== null) score += 1 / (RRF_K + chromaRank + 1);
+  if (ftsRank !== null) score += 1 / (RRF_K + ftsRank + 1);
+  return score;
+}
+
 // ─── FusionRanker ─────────────────────────────────────────────────────────────
 
 export class FusionRanker {
@@ -102,28 +123,58 @@ export class FusionRanker {
   }
 
   /**
-   * Rank candidates using multi-dimensional scoring:
+   * Rank candidates using Reciprocal Rank Fusion (RRF).
    *
-   *   finalScore = (w.chroma * chromaScore + w.fts5 * ftsScore)
-   *                * typeWeight
-   *                * decayFactor
+   * RRF score = Σ(1 / (k + rank_i)) for each ranking list the item appears in.
+   * Type weight and staleness decay are applied on top of the RRF base score.
    *
    * Results are sorted by finalScore descending.
    */
   rank(candidates: FusionCandidate[], queryType: QueryType): RankedResult[] {
+    return this.rankRRF(candidates, queryType);
+  }
+
+  /**
+   * RRF-based ranking implementation.
+   *
+   * 1. Sort candidates by chromaScore DESC → assign chroma ranks
+   * 2. Sort candidates by ftsScore DESC → assign fts ranks
+   * 3. Compute RRF score from both rank lists
+   * 4. Apply typeWeight and decayFactor on top
+   * 5. Sort by final score DESC
+   */
+  rankRRF(candidates: FusionCandidate[], queryType: QueryType): RankedResult[] {
     if (candidates.length === 0) return [];
 
-    const w = this.getWeights(queryType);
     const now = Date.now();
 
+    // Build rank maps — rank 0 = best in each list
+    const chromaRanks = new Map<number, number>();
+    const ftsRanks = new Map<number, number>();
+
+    // Sort a copy by chromaScore DESC to assign chroma ranks
+    const byChroma = [...candidates].sort((a, b) => b.chromaScore - a.chromaScore);
+    for (let i = 0; i < byChroma.length; i++) {
+      chromaRanks.set(byChroma[i].id, i);
+    }
+
+    // Sort a copy by ftsScore DESC to assign fts ranks
+    const byFts = [...candidates].sort((a, b) => b.ftsScore - a.ftsScore);
+    for (let i = 0; i < byFts.length; i++) {
+      ftsRanks.set(byFts[i].id, i);
+    }
+
     const ranked: RankedResult[] = candidates.map((c) => {
-      const baseScore = w.chroma * c.chromaScore + w.fts5 * c.ftsScore;
+      const chromaRank = chromaRanks.get(c.id) ?? null;
+      const ftsRank = ftsRanks.get(c.id) ?? null;
+
+      const rrfScore = computeRRFScore(chromaRank, ftsRank);
       const typeWeight = TYPE_WEIGHTS[c.type] ?? DEFAULT_TYPE_WEIGHT;
       const decayFactor = this._decayFactor(c, now);
 
       return {
         ...c,
-        finalScore: baseScore * typeWeight * decayFactor,
+        finalScore: rrfScore * typeWeight * decayFactor,
       };
     });
 

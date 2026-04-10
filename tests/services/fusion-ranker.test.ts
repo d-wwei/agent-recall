@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { FusionRanker } from '../../src/services/worker/search/FusionRanker.js';
+import { FusionRanker, RRF_K, computeRRFScore } from '../../src/services/worker/search/FusionRanker.js';
 import type { FusionCandidate } from '../../src/services/worker/search/FusionRanker.js';
 
 const ranker = new FusionRanker();
@@ -174,9 +174,10 @@ describe('FusionRanker.rank — type weighting', () => {
       makeCandidate({ id: 2, chromaScore: 0.5, ftsScore: 0.5, type: 'change',       createdAtEpoch: now - 10_000 }),
     ];
     const results = ranker.rank(candidates, 'balanced');
-    // Both have the same final score, so order may vary — but both should be present
+    // Both have the same type weight (0.5), so both should be present
+    // With RRF, tie-breaking produces slightly different ranks but scores are close
     expect(results).toHaveLength(2);
-    expect(Math.abs(results[0].finalScore - results[1].finalScore)).toBeCloseTo(0, 8);
+    expect(Math.abs(results[0].finalScore - results[1].finalScore)).toBeLessThan(0.01);
   });
 });
 
@@ -263,5 +264,87 @@ describe('FusionRanker.rank — staleness decay', () => {
     const results = ranker.rank([recentlyReferenced, neverReferenced], 'balanced');
     // Recently referenced should win because its effective age (2 days) < 100 days
     expect(results[0].id).toBe(1);
+  });
+});
+
+// ──────────────────────────────────────────────────────────
+// RRF scoring
+// ──────────────────────────────────────────────────────────
+
+describe('RRF constants and computeRRFScore', () => {
+  it('RRF_K is 60', () => {
+    expect(RRF_K).toBe(60);
+  });
+
+  it('computeRRFScore returns correct value for rank 0 in both lists', () => {
+    const score = computeRRFScore(0, 0);
+    // 1/(60+0+1) + 1/(60+0+1) = 2/61
+    expect(score).toBeCloseTo(2 / 61, 10);
+  });
+
+  it('computeRRFScore returns correct value when only in one list (chroma)', () => {
+    const score = computeRRFScore(0, null);
+    expect(score).toBeCloseTo(1 / 61, 10);
+  });
+
+  it('computeRRFScore returns correct value when only in one list (fts)', () => {
+    const score = computeRRFScore(null, 0);
+    expect(score).toBeCloseTo(1 / 61, 10);
+  });
+
+  it('computeRRFScore returns 0 when in neither list', () => {
+    expect(computeRRFScore(null, null)).toBe(0);
+  });
+
+  it('higher ranks produce higher scores', () => {
+    const rank0 = computeRRFScore(0, 0);
+    const rank5 = computeRRFScore(5, 5);
+    const rank50 = computeRRFScore(50, 50);
+    expect(rank0).toBeGreaterThan(rank5);
+    expect(rank5).toBeGreaterThan(rank50);
+  });
+});
+
+describe('FusionRanker.rank — RRF behavior', () => {
+  it('item in both lists scores higher than item in only one list', () => {
+    const now = Date.now();
+    const candidates: FusionCandidate[] = [
+      makeCandidate({ id: 1, chromaScore: 0.9, ftsScore: 0.9, type: 'change', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, chromaScore: 0.8, ftsScore: 0.0, type: 'change', createdAtEpoch: now - 10_000 }),
+    ];
+
+    const results = ranker.rank(candidates, 'balanced');
+    // id=1 is rank 0 in both lists, id=2 is rank 1 in chroma, rank 0 in fts (ftsScore 0.0 is lowest)
+    // id=1 should still be higher because it ranks well in both lists
+    expect(results[0].id).toBe(1);
+    expect(results[0].finalScore).toBeGreaterThan(results[1].finalScore);
+  });
+
+  it('rankRRF produces same results as rank (rank delegates to rankRRF)', () => {
+    const now = Date.now();
+    const candidates: FusionCandidate[] = [
+      makeCandidate({ id: 1, chromaScore: 0.3, ftsScore: 0.8, type: 'decision', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, chromaScore: 0.9, ftsScore: 0.2, type: 'bugfix', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 3, chromaScore: 0.5, ftsScore: 0.5, type: 'change', createdAtEpoch: now - 10_000 }),
+    ];
+
+    const rankResults = ranker.rank(candidates, 'balanced');
+    const rrfResults = ranker.rankRRF(candidates, 'balanced');
+
+    expect(rankResults.map(r => r.id)).toEqual(rrfResults.map(r => r.id));
+    for (let i = 0; i < rankResults.length; i++) {
+      expect(rankResults[i].finalScore).toBeCloseTo(rrfResults[i].finalScore, 10);
+    }
+  });
+
+  it('RRF still respects type weights (decision outranks change at equal raw scores)', () => {
+    const now = Date.now();
+    const candidates: FusionCandidate[] = [
+      makeCandidate({ id: 1, chromaScore: 0.7, ftsScore: 0.7, type: 'change',   createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, chromaScore: 0.7, ftsScore: 0.7, type: 'decision', createdAtEpoch: now - 10_000 }),
+    ];
+
+    const results = ranker.rank(candidates, 'balanced');
+    expect(results[0].id).toBe(2); // decision (weight 1.0) beats change (weight 0.5)
   });
 });
