@@ -166,8 +166,21 @@ function buildContextOutput(
       checkpoint.testStatus ? `> Tests: ${checkpoint.testStatus}` : null,
       checkpoint.pendingWork.length > 0 ? `> Pending: ${checkpoint.pendingWork.join(', ')}` : null,
       checkpoint.resumeHint ? `> Resume: ${checkpoint.resumeHint}` : null,
-      '',
     ].filter(Boolean) as string[];
+
+    // Render task history from smart checkpoint
+    if (checkpoint.taskHistory && checkpoint.taskHistory.length > 0) {
+      const pending = checkpoint.taskHistory.filter(t => t.status === 'pending');
+      const completed = checkpoint.taskHistory.filter(t => t.status === 'completed');
+      if (completed.length > 0) {
+        checkpointLines.push(`> Completed: ${completed.map(t => t.prompt).join('; ')}`);
+      }
+      if (pending.length > 0) {
+        checkpointLines.push(`> Still pending: ${pending.map(t => t.prompt).join('; ')}`);
+      }
+    }
+
+    checkpointLines.push('');
     const cpText = checkpointLines.join('\n');
     const cpTokens = TokenBudgetManager.estimateTokens(cpText);
     if (!budgetManager || budgetManager.canFit('L1', cpTokens)) {

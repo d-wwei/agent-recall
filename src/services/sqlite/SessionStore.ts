@@ -1125,6 +1125,35 @@ export class SessionStore {
   }
 
   /**
+   * Get all user prompts for a content session, ordered by prompt number ascending
+   * Used by smart checkpoint to build task history from user prompts
+   */
+  getUserPromptsBySession(contentSessionId: string): Array<{
+    id: number;
+    content_session_id: string;
+    prompt_number: number;
+    prompt_text: string;
+    created_at: string;
+    created_at_epoch: number;
+  }> {
+    const stmt = this.db.prepare(`
+      SELECT id, content_session_id, prompt_number, prompt_text, created_at, created_at_epoch
+      FROM user_prompts
+      WHERE content_session_id = ?
+      ORDER BY prompt_number ASC
+    `);
+
+    return stmt.all(contentSessionId) as Array<{
+      id: number;
+      content_session_id: string;
+      prompt_number: number;
+      prompt_text: string;
+      created_at: string;
+      created_at_epoch: number;
+    }>;
+  }
+
+  /**
    * Get recent sessions with their status and summary info
    */
   getRecentSessionsWithStatus(project: string, limit: number = 3): Array<{

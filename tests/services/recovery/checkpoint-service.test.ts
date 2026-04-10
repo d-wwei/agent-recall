@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { ClaudeMemDatabase } from '../../../src/services/sqlite/Database.js';
 import { CheckpointService } from '../../../src/services/recovery/CheckpointService.js';
-import type { Checkpoint } from '../../../src/services/recovery/CheckpointService.js';
+import type { Checkpoint, TaskHistoryItem } from '../../../src/services/recovery/CheckpointService.js';
 import type { Database } from 'bun:sqlite';
 
 describe('CheckpointService', () => {
@@ -35,6 +35,25 @@ describe('CheckpointService', () => {
       observationCount: 5,
       resumeHint: 'Last: Read src/auth/middleware.ts. Next: Write tests for new endpoint',
       savedAt: '2026-04-09T10:00:00.000Z',
+      taskHistory: [],
+      conversationTopics: [],
+      ...overrides,
+    };
+  }
+
+  function makeUserPrompt(overrides: Partial<{
+    prompt_text: string;
+    created_at: string;
+    created_at_epoch: number;
+    prompt_number: number;
+  }> = {}) {
+    return {
+      id: 1,
+      content_session_id: 'session-1',
+      prompt_number: 1,
+      prompt_text: 'Fix the authentication bug',
+      created_at: '2026-04-09T10:00:00.000Z',
+      created_at_epoch: Date.now(),
       ...overrides,
     };
   }
@@ -334,6 +353,8 @@ describe('CheckpointService', () => {
       expect(checkpoint.lastToolAction).toBe('No actions recorded');
       expect(checkpoint.observationCount).toBe(0);
       expect(checkpoint.resumeHint).toBe('Continue working on the project');
+      expect(checkpoint.taskHistory).toEqual([]);
+      expect(checkpoint.conversationTopics).toEqual([]);
     });
 
     it('should set savedAt to an ISO timestamp', () => {
@@ -442,6 +463,182 @@ describe('CheckpointService', () => {
 
       expect(service.getLatestCheckpoint('project-a')).toBeNull();
       expect(service.getLatestCheckpoint('project-b')).toBeTruthy();
+    });
+  });
+
+  describe('buildSmartCheckpoint', () => {
+    it('should extract currentTask from the latest user prompt', () => {
+      const prompts = [
+        makeUserPrompt({ prompt_text: 'Add logging to the auth service', prompt_number: 1, created_at_epoch: 1000 }),
+        makeUserPrompt({ prompt_text: 'Fix the database connection pool', prompt_number: 2, created_at_epoch: 2000 }),
+      ];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', [], prompts, 0
+      );
+
+      expect(checkpoint.currentTask).toContain('Fix the database connection pool');
+    });
+
+    it('should strip common prefixes from prompts', () => {
+      const prompts = [
+        makeUserPrompt({ prompt_text: 'Can you please fix the login bug', prompt_number: 1 }),
+      ];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', [], prompts, 0
+      );
+
+      // Should strip "Can you" and "please"
+      expect(checkpoint.currentTask).not.toMatch(/^can you/i);
+      expect(checkpoint.currentTask).not.toMatch(/^please/i);
+    });
+
+    it('should build taskHistory marking completed vs pending tasks', () => {
+      const baseEpoch = Date.now();
+      const prompts = [
+        makeUserPrompt({ prompt_text: 'Add auth middleware', prompt_number: 1, created_at_epoch: baseEpoch }),
+        makeUserPrompt({ prompt_text: 'Write tests for auth', prompt_number: 2, created_at_epoch: baseEpoch + 2000 }),
+      ];
+      const observations = [
+        {
+          title: 'Added auth middleware',
+          narrative: 'Implemented JWT auth middleware',
+          type: 'feature',
+          created_at_epoch: baseEpoch + 1000,
+          files_modified: null,
+          files_read: null,
+          facts: '',
+        },
+      ];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', observations, prompts, 0
+      );
+
+      expect(checkpoint.taskHistory.length).toBe(2);
+      expect(checkpoint.taskHistory[0].status).toBe('completed');
+      expect(checkpoint.taskHistory[1].status).toBe('pending');
+    });
+
+    it('should generate resumeHint mentioning unfinished last prompt', () => {
+      const baseEpoch = Date.now();
+      const prompts = [
+        makeUserPrompt({ prompt_text: 'Refactor the payment service', prompt_number: 1, created_at_epoch: baseEpoch }),
+      ];
+      // No observations after the prompt
+      const observations: any[] = [];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', observations, prompts, 0
+      );
+
+      expect(checkpoint.resumeHint).toContain("wasn't finished");
+      expect(checkpoint.resumeHint).toContain('Refactor the payment service');
+    });
+
+    it('should generate resumeHint mentioning failing tests', () => {
+      const baseEpoch = Date.now();
+      const prompts = [
+        makeUserPrompt({ prompt_text: 'Fix the auth tests', prompt_number: 1, created_at_epoch: baseEpoch }),
+      ];
+      const observations = [
+        {
+          title: 'Run tests',
+          narrative: 'Ran test suite: 10 pass, 3 fail',
+          type: 'observation',
+          created_at_epoch: baseEpoch + 1000,
+          files_modified: JSON.stringify(['src/auth/middleware.ts']),
+          files_read: null,
+          facts: '',
+        },
+      ];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', observations, prompts, 0
+      );
+
+      // Test status should be detected, and since last prompt has completion after it (but it's a test run, not feature),
+      // the resume hint should mention failing tests
+      expect(checkpoint.testStatus).toBe('10 pass, 3 fail');
+      expect(checkpoint.resumeHint).toContain('fail');
+    });
+
+    it('should extract conversationTopics from user prompts', () => {
+      const prompts = [
+        makeUserPrompt({ prompt_text: 'Add authentication to the API', prompt_number: 1 }),
+        makeUserPrompt({ prompt_text: 'Fix database migration issues', prompt_number: 2 }),
+        makeUserPrompt({ prompt_text: 'Improve test coverage for auth module', prompt_number: 3 }),
+      ];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', [], prompts, 0
+      );
+
+      expect(checkpoint.conversationTopics.length).toBe(3);
+      expect(checkpoint.conversationTopics.some(t => t.includes('authentication'))).toBe(true);
+      expect(checkpoint.conversationTopics.some(t => t.includes('database migration'))).toBe(true);
+    });
+
+    it('should handle empty prompts gracefully', () => {
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', [], [], 0
+      );
+
+      expect(checkpoint.taskHistory).toEqual([]);
+      expect(checkpoint.conversationTopics).toEqual([]);
+      expect(checkpoint.currentTask).toBe('Working on test-project');
+    });
+
+    it('should handle prompts with empty text gracefully', () => {
+      const prompts = [
+        makeUserPrompt({ prompt_text: '', prompt_number: 1 }),
+        makeUserPrompt({ prompt_text: '   ', prompt_number: 2 }),
+      ];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', [], prompts, 0
+      );
+
+      expect(checkpoint.taskHistory).toEqual([]);
+      expect(checkpoint.conversationTopics).toEqual([]);
+    });
+
+    it('should truncate currentTask to 120 chars', () => {
+      const prompts = [
+        makeUserPrompt({ prompt_text: 'A'.repeat(200), prompt_number: 1 }),
+      ];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', [], prompts, 0
+      );
+
+      expect(checkpoint.currentTask.length).toBeLessThanOrEqual(120);
+    });
+
+    it('should detect unfinished last prompt as pending work', () => {
+      const baseEpoch = Date.now();
+      const prompts = [
+        makeUserPrompt({ prompt_text: 'Implement the retry logic', prompt_number: 1, created_at_epoch: baseEpoch + 5000 }),
+      ];
+      // No observations after the prompt
+      const observations = [
+        {
+          title: 'Read config',
+          narrative: 'Reading configuration',
+          type: 'observation',
+          created_at_epoch: baseEpoch, // before the prompt
+          files_modified: null,
+          files_read: null,
+          facts: '',
+        },
+      ];
+
+      const checkpoint = service.buildSmartCheckpoint(
+        'test-project', 'session-1', observations, prompts, 0
+      );
+
+      expect(checkpoint.pendingWork.some(p => p.includes('Implement the retry logic'))).toBe(true);
     });
   });
 

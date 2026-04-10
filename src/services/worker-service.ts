@@ -392,10 +392,10 @@ export class WorkerService {
             const sessionRow = store.getSessionById(sessionDbId);
             const startEpoch = sessionRow?.created_at_epoch || 0;
             const recentObs = store.getObservationsSinceEpoch(project, startEpoch);
-            // Get last user prompt for task description
-            const lastPrompt = store.getLatestUserPrompt(contentSessionId);
-            const checkpoint = checkpointService.buildCheckpointFromObservations(
-              project, contentSessionId, recentObs, lastPrompt?.content || null
+            // Get all user prompts for smart checkpoint analysis
+            const userPrompts = store.getUserPromptsBySession(contentSessionId);
+            const checkpoint = checkpointService.buildSmartCheckpoint(
+              project, contentSessionId, recentObs, userPrompts, startEpoch
             );
             checkpointService.saveCheckpoint(project, contentSessionId, checkpoint);
           } catch (cpError) {

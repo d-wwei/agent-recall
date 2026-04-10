@@ -9,6 +9,12 @@
 import { Database } from 'bun:sqlite';
 import { logger } from '../../utils/logger.js';
 
+export interface TaskHistoryItem {
+  prompt: string;          // cleaned user prompt (first 100 chars)
+  status: 'completed' | 'pending' | 'unknown';
+  timestamp: string;
+}
+
 export interface Checkpoint {
   currentTask: string;           // what the user is doing (from latest user prompt)
   filesModified: string[];       // accumulated files changed in this session
@@ -19,6 +25,8 @@ export interface Checkpoint {
   observationCount: number;      // how many observations this session
   resumeHint: string;            // one-line "start here next time"
   savedAt: string;               // ISO timestamp
+  taskHistory: TaskHistoryItem[];     // progression of user requests
+  conversationTopics: string[];       // what was discussed
 }
 
 export class CheckpointService {
@@ -189,7 +197,127 @@ export class CheckpointService {
       observationCount: observations.length,
       resumeHint,
       savedAt: new Date().toISOString(),
+      taskHistory: [],
+      conversationTopics: [],
     };
+  }
+
+  /**
+   * Build a smart checkpoint that analyzes both observations AND user prompts.
+   * Produces richer task history, conversation topics, and smarter resume hints
+   * by treating user prompts as the primary signal for what was being worked on.
+   */
+  buildSmartCheckpoint(
+    project: string,
+    sessionId: string,
+    observations: any[],
+    userPrompts: any[],
+    sessionStartEpoch: number
+  ): Checkpoint {
+    // Start with base checkpoint from observations
+    const base = this.buildCheckpointFromObservations(
+      project, sessionId, observations,
+      userPrompts.length > 0 ? userPrompts[userPrompts.length - 1]?.prompt_text || null : null
+    );
+
+    // 1. currentTask: extract from the LATEST user prompt with cleaning
+    if (userPrompts.length > 0) {
+      const lastPrompt = userPrompts[userPrompts.length - 1];
+      const cleanedPrompt = cleanPromptText(lastPrompt.prompt_text || '');
+      base.currentTask = cleanedPrompt.substring(0, 120) || base.currentTask;
+    }
+
+    // 2. taskHistory: build task progression from ALL user prompts
+    const taskHistory: TaskHistoryItem[] = [];
+    for (let i = 0; i < userPrompts.length; i++) {
+      const prompt = userPrompts[i];
+      const promptText = cleanPromptText(prompt.prompt_text || '');
+      if (!promptText) continue;
+
+      const isLast = i === userPrompts.length - 1;
+      const promptEpoch = prompt.created_at_epoch || 0;
+
+      // Check if observations after this prompt indicate completion
+      const hasCompletionAfter = observations.some(obs => {
+        const obsEpoch = obs.created_at_epoch || 0;
+        if (obsEpoch <= promptEpoch) return false;
+        const type = (obs.type || '').toLowerCase();
+        const narrative = (obs.narrative || '').toLowerCase();
+        const title = (obs.title || '').toLowerCase();
+        return type === 'feature' || type === 'bugfix' ||
+          /\b(completed|fixed|implemented|added|created|resolved|finished|done)\b/.test(narrative) ||
+          /\b(completed|fixed|implemented|added|created|resolved|finished|done)\b/.test(title);
+      });
+
+      let status: 'completed' | 'pending' | 'unknown';
+      if (isLast && !hasCompletionAfter) {
+        status = 'pending';
+      } else if (hasCompletionAfter) {
+        status = 'completed';
+      } else {
+        status = 'unknown';
+      }
+
+      taskHistory.push({
+        prompt: promptText.substring(0, 100),
+        status,
+        timestamp: prompt.created_at || new Date().toISOString(),
+      });
+    }
+    base.taskHistory = taskHistory;
+
+    // 3. pendingWork: smarter detection
+    // Add: last prompt if no observation followed it
+    if (userPrompts.length > 0) {
+      const lastPrompt = userPrompts[userPrompts.length - 1];
+      const lastPromptEpoch = lastPrompt.created_at_epoch || 0;
+      const hasObsAfterLastPrompt = observations.some(obs =>
+        (obs.created_at_epoch || 0) > lastPromptEpoch
+      );
+      if (!hasObsAfterLastPrompt) {
+        const cleaned = cleanPromptText(lastPrompt.prompt_text || '');
+        if (cleaned && !base.pendingWork.some(p => p.toLowerCase().includes(cleaned.substring(0, 30).toLowerCase()))) {
+          base.pendingWork.push(`Unfinished: ${cleaned.substring(0, 80)}`);
+        }
+      }
+    }
+    // Add: test failures from observations
+    if (base.testStatus && /fail/i.test(base.testStatus)) {
+      const testObs = observations.filter(obs => {
+        const text = [obs.title, obs.narrative].filter(Boolean).join(' ').toLowerCase();
+        return text.includes('test') && text.includes('fail');
+      });
+      for (const obs of testObs) {
+        const files = obs.files_modified || obs.files_read || '';
+        const fileHint = typeof files === 'string' ? parseFilesList(files)[0] : (Array.isArray(files) ? files[0] : '');
+        if (fileHint && !base.pendingWork.some(p => p.includes(fileHint))) {
+          base.pendingWork.push(`Fix failing tests in ${fileHint}`);
+        }
+      }
+    }
+
+    // 4. resumeHint: much smarter
+    base.resumeHint = buildSmartResumeHint(
+      base, userPrompts, observations
+    );
+
+    // 5. conversationTopics: extracted from prompt topics
+    const topics = new Set<string>();
+    for (const prompt of userPrompts) {
+      const text = prompt.prompt_text || '';
+      // Extract topic: first meaningful clause (up to 60 chars)
+      const cleaned = cleanPromptText(text);
+      if (cleaned) {
+        // Take first sentence or first 60 chars
+        const firstSentence = cleaned.split(/[.!?\n]/)[0]?.trim();
+        if (firstSentence && firstSentence.length > 3) {
+          topics.add(firstSentence.substring(0, 60));
+        }
+      }
+    }
+    base.conversationTopics = Array.from(topics);
+
+    return base;
   }
 
   /**
@@ -249,4 +377,67 @@ function buildResumeHint(lastToolAction: string, pendingWork: string[]): string 
     return 'Continue working on the project';
   }
   return parts.join('. ');
+}
+
+/**
+ * Clean a user prompt by removing common prefixes and trimming
+ */
+function cleanPromptText(text: string): string {
+  let cleaned = text.trim();
+  // Strip common conversational prefixes — apply repeatedly to handle chained prefixes
+  // e.g., "Can you please fix..." → "fix..."
+  let prev = '';
+  while (prev !== cleaned) {
+    prev = cleaned;
+    cleaned = cleaned.replace(/^(can you|could you|please|help me|i want to|i need to|let's|let us)\s+/i, '');
+  }
+  // Strip leading punctuation
+  cleaned = cleaned.replace(/^[,;:\-–—]+\s*/, '');
+  return cleaned.trim();
+}
+
+/**
+ * Build a smarter resume hint that considers user prompts, observations, and test status
+ */
+function buildSmartResumeHint(
+  checkpoint: Checkpoint,
+  userPrompts: any[],
+  observations: any[]
+): string {
+  // Priority 1: If tests are failing, that's the most actionable hint
+  if (checkpoint.testStatus && /fail/i.test(checkpoint.testStatus)) {
+    const recentModified = checkpoint.filesModified.slice(-1);
+    const fileHint = recentModified.length > 0 ? ` in ${recentModified[0]}` : '';
+    return `Tests failing (${checkpoint.testStatus})${fileHint} — fix before continuing`;
+  }
+
+  // Priority 2: If last prompt had no completion signal
+  if (userPrompts.length > 0) {
+    const lastPrompt = userPrompts[userPrompts.length - 1];
+    const lastPromptEpoch = lastPrompt.created_at_epoch || 0;
+    const hasCompletionAfter = observations.some(obs => {
+      const obsEpoch = obs.created_at_epoch || 0;
+      if (obsEpoch <= lastPromptEpoch) return false;
+      const type = (obs.type || '').toLowerCase();
+      const narrative = (obs.narrative || '').toLowerCase();
+      return type === 'feature' || type === 'bugfix' ||
+        /\b(completed|fixed|implemented|finished|done)\b/.test(narrative);
+    });
+
+    if (!hasCompletionAfter) {
+      const cleaned = cleanPromptText(lastPrompt.prompt_text || '');
+      if (cleaned) {
+        return `User asked '${cleaned.substring(0, 80)}' but it wasn't finished`;
+      }
+    }
+  }
+
+  // If multiple files modified, point to the most recent
+  if (checkpoint.filesModified.length > 0) {
+    const lastFile = checkpoint.filesModified[checkpoint.filesModified.length - 1];
+    return `Last working on ${lastFile}`;
+  }
+
+  // Default
+  return `Continue from where ${checkpoint.currentTask.substring(0, 60)} left off`;
 }
