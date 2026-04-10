@@ -324,7 +324,7 @@ describe('GatherStage', () => {
 });
 
 describe('ConsolidateStage', () => {
-  it('creates new pages from observation groups', () => {
+  it('creates new pages from observation groups with structured sections', () => {
     const groups: TopicGroup[] = [{
       topic: 'auth',
       observations: [
@@ -339,16 +339,18 @@ describe('ConsolidateStage', () => {
     expect(pages).toHaveLength(1);
     expect(pages[0].topic).toBe('auth');
     expect(pages[0].content).toContain('## auth');
+    expect(pages[0].content).toContain('### Facts');
     expect(pages[0].content).toContain('Found auth pattern');
     expect(pages[0].content).toContain('JWT-based auth');
     expect(pages[0].sourceObservationIds).toEqual([1]);
     expect(pages[0].classification).toBe('fact');
   });
 
-  it('merges existing content when knowledge page exists', () => {
+  it('merges existing structured content when knowledge page exists', () => {
     const existingKnowledge = new Map([
       ['auth', {
-        id: 1, project: PROJECT, topic: 'auth', content: 'Existing auth content',
+        id: 1, project: PROJECT, topic: 'auth',
+        content: '## auth\n\n### Facts\n- Existing auth fact\n\n### Status\n- Auth enabled',
         source_observation_ids: '[10]', confidence: 'high', protected: 0,
         privacy_scope: 'global', version: 1, compiled_at: null,
         valid_until: null, superseded_by: null, created_at: '',
@@ -367,13 +369,14 @@ describe('ConsolidateStage', () => {
     const pages = stage.execute(groups, existingKnowledge, ctx);
 
     expect(pages).toHaveLength(1);
-    expect(pages[0].content).toContain('Existing auth content');
+    expect(pages[0].content).toContain('Existing auth fact');
+    expect(pages[0].content).toContain('Auth enabled');
     expect(pages[0].content).toContain('New auth finding');
     expect(pages[0].sourceObservationIds).toContain(10);
     expect(pages[0].sourceObservationIds).toContain(20);
   });
 
-  it('classifies decision/change as status', () => {
+  it('classifies decision/change as status and puts them in Status section', () => {
     const groups: TopicGroup[] = [{
       topic: 'arch',
       observations: [
@@ -385,9 +388,11 @@ describe('ConsolidateStage', () => {
     const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
     expect(pages[0].classification).toBe('status');
+    expect(pages[0].content).toContain('### Status');
+    expect(pages[0].content).toContain('Decided on microservices');
   });
 
-  it('classifies bugfix/refactor as event', () => {
+  it('classifies bugfix/refactor as event and puts them in Timeline section', () => {
     const groups: TopicGroup[] = [{
       topic: 'fixes',
       observations: [
@@ -399,6 +404,8 @@ describe('ConsolidateStage', () => {
     const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
     expect(pages[0].classification).toBe('event');
+    expect(pages[0].content).toContain('### Timeline');
+    expect(pages[0].content).toContain('[bugfix] Fixed memory leak');
   });
 
   it('sets confidence=medium when observation types are mixed', () => {
@@ -414,9 +421,12 @@ describe('ConsolidateStage', () => {
     const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
     expect(pages[0].confidence).toBe('medium');
+    // Mixed types should produce both Status and Timeline sections
+    expect(pages[0].content).toContain('### Status');
+    expect(pages[0].content).toContain('### Timeline');
   });
 
-  it('deduplicates facts across observations', () => {
+  it('deduplicates facts across observations in Facts section', () => {
     const groups: TopicGroup[] = [{
       topic: 'api',
       observations: [
@@ -428,9 +438,38 @@ describe('ConsolidateStage', () => {
     const stage = new ConsolidateStage();
     const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
+    expect(pages[0].content).toContain('### Facts');
     const factsSection = pages[0].content.split('### Facts')[1] || '';
-    const factCount = (factsSection.match(/^- /gm) || []).length;
-    expect(factCount).toBe(3); // REST API, Uses auth, Has rate limiting (deduped)
+    // Should contain: Obs 1, REST API, Uses auth, Obs 2, Has rate limiting (5 unique, REST API deduped)
+    expect(factsSection).toContain('REST API');
+    expect(factsSection).toContain('Uses auth');
+    expect(factsSection).toContain('Has rate limiting');
+    // Count unique fact lines — REST API appears once despite being in both observations
+    const factLines = factsSection.split('\n').filter(l => l.startsWith('- '));
+    const restApiCount = factLines.filter(l => l.includes('REST API')).length;
+    expect(restApiCount).toBe(1); // deduplication works
+  });
+
+  it('produces all three sections when observations span types', () => {
+    const groups: TopicGroup[] = [{
+      topic: 'project',
+      observations: [
+        { id: 1, type: 'change', title: 'Switched to Bun', subtitle: null, narrative: null, facts: '[]', concepts: '["project"]', project: PROJECT, created_at_epoch: Date.now() },
+        { id: 2, type: 'discovery', title: 'Found perf issue', subtitle: null, narrative: null, facts: '["Memory usage high"]', concepts: '["project"]', project: PROJECT, created_at_epoch: Date.now() },
+        { id: 3, type: 'bugfix', title: 'Fixed OOM crash', subtitle: null, narrative: null, facts: '[]', concepts: '["project"]', project: PROJECT, created_at_epoch: Date.now() },
+      ],
+    }];
+
+    const stage = new ConsolidateStage();
+    const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
+
+    expect(pages[0].content).toContain('### Status');
+    expect(pages[0].content).toContain('### Facts');
+    expect(pages[0].content).toContain('### Timeline');
+    expect(pages[0].content).toContain('Switched to Bun');
+    expect(pages[0].content).toContain('Found perf issue');
+    expect(pages[0].content).toContain('Memory usage high');
+    expect(pages[0].content).toContain('[bugfix] Fixed OOM crash');
   });
 });
 
