@@ -39,6 +39,8 @@ import { PersonaService } from '../persona/PersonaService.js';
 import type { MergedPersona, ActiveTaskRow, BootstrapStateRow, PersonaConflict } from '../persona/PersonaTypes.js';
 import { AutoMemorySync } from '../sync/AutoMemorySync.js';
 import { MarkdownImporter } from '../markdown-sync/MarkdownImporter.js';
+import { CheckpointService } from '../recovery/CheckpointService.js';
+import type { Checkpoint } from '../recovery/CheckpointService.js';
 import { existsSync } from 'fs';
 
 // Version marker path for native module error handling
@@ -111,7 +113,8 @@ function buildContextOutput(
   personaConflicts?: PersonaConflict[],
   budgetManager?: TokenBudgetManager,
   completenessHints?: string[],
-  compiledKnowledge?: any[]
+  compiledKnowledge?: any[],
+  checkpoint?: Checkpoint | null
 ): string {
   const output: string[] = [];
 
@@ -151,6 +154,26 @@ function buildContextOutput(
       output.push(...taskLines);
       if (budgetManager) {
         budgetManager.consume('L1', taskTokens);
+      }
+    }
+  }
+
+  // Agent Recall: Inject checkpoint context for session resume (L1)
+  if (checkpoint && !activeTask) {
+    const checkpointLines = [
+      `> **Last session checkpoint** (${checkpoint.savedAt}):`,
+      `> Task: ${checkpoint.currentTask}`,
+      checkpoint.testStatus ? `> Tests: ${checkpoint.testStatus}` : null,
+      checkpoint.pendingWork.length > 0 ? `> Pending: ${checkpoint.pendingWork.join(', ')}` : null,
+      checkpoint.resumeHint ? `> Resume: ${checkpoint.resumeHint}` : null,
+      '',
+    ].filter(Boolean) as string[];
+    const cpText = checkpointLines.join('\n');
+    const cpTokens = TokenBudgetManager.estimateTokens(cpText);
+    if (!budgetManager || budgetManager.canFit('L1', cpTokens)) {
+      output.push(...checkpointLines);
+      if (budgetManager) {
+        budgetManager.consume('L1', cpTokens);
       }
     }
   }
@@ -436,6 +459,15 @@ export async function generateContext(
       // Non-blocking: compiled_knowledge table may not exist in older installs
     }
 
+    // Load checkpoint for session resume context
+    let checkpoint: Checkpoint | null = null;
+    try {
+      const checkpointService = new CheckpointService(db.db);
+      checkpoint = checkpointService.getLatestCheckpoint(project);
+    } catch {
+      // Non-blocking: checkpoint loading failure shouldn't break context generation
+    }
+
     // Build and return context
     const output = buildContextOutput(
       project,
@@ -450,7 +482,8 @@ export async function generateContext(
       personaConflicts,
       budgetManager,
       completenessHints,
-      compiledKnowledge
+      compiledKnowledge,
+      checkpoint
     );
 
     return output;

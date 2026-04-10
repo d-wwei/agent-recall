@@ -24,6 +24,8 @@ import type { SessionManager } from '../SessionManager.js';
 import type { WorkerRef, StorageResult } from './types.js';
 import { broadcastObservation, broadcastSummary } from './ObservationBroadcaster.js';
 import { cleanupProcessedMessages } from './SessionCleanupHelper.js';
+import { StructuredSummaryBuilder } from '../../recovery/StructuredSummaryBuilder.js';
+import { CheckpointService } from '../../recovery/CheckpointService.js';
 
 /**
  * Process agent response text (parse XML, save to database, sync to Chroma, broadcast SSE)
@@ -327,4 +329,27 @@ async function syncAndBroadcastSummary(
   updateCursorContextForProject(session.project, getWorkerPort()).catch(error => {
     logger.warn('CURSOR', 'Context update failed (non-critical)', { project: session.project }, error as Error);
   });
+
+  // Build and store structured summary for session recovery (fire-and-forget)
+  try {
+    const store = dbManager.getSessionStore();
+    const recentObs = store.getObservationsSinceEpoch(session.project, session.createdAtEpoch || 0);
+    const builder = new StructuredSummaryBuilder(store.db);
+    const structured = builder.buildFromSession(
+      session.project,
+      session.memorySessionId!,
+      recentObs,
+      summaryForStore,
+      session.createdAtEpoch || 0
+    );
+    builder.storeStructuredSummary(session.project, session.memorySessionId!, structured);
+
+    // Clear session checkpoint now that a proper summary exists
+    const checkpointService = new CheckpointService(store.db);
+    checkpointService.clearCheckpoint(session.project);
+  } catch (err) {
+    logger.debug('STRUCTURED_SUMMARY', 'Structured summary build failed (non-blocking)', {
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
 }

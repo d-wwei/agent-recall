@@ -55,6 +55,7 @@ export class MigrationRunner {
     this.createSharedKnowledgeTable(); // migration 41
     this.createCompilationLogsTable(); // migration 42
     this.addEvidenceTimelineColumn(); // migration 43
+    this.addStructuredSummaryColumn(); // migration 44
   }
 
   /**
@@ -1495,5 +1496,24 @@ export class MigrationRunner {
     }
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(43, new Date().toISOString());
+  }
+
+  /**
+   * Add structured_summary column to session_summaries (migration 44)
+   *
+   * Stores a JSON blob of StructuredSummary for actionable session recovery.
+   */
+  private addStructuredSummaryColumn(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(44);
+    if (applied) return;
+
+    const tableInfo = this.db.prepare('PRAGMA table_info(session_summaries)').all() as { name: string }[];
+    const has = tableInfo.some((c: any) => c.name === 'structured_summary');
+    if (!has) {
+      this.db.exec('ALTER TABLE session_summaries ADD COLUMN structured_summary TEXT');
+      logger.debug('DB', 'Added structured_summary column to session_summaries');
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(44, new Date().toISOString());
   }
 }
