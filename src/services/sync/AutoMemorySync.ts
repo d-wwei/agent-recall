@@ -17,6 +17,7 @@ import { Database } from 'bun:sqlite';
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, extname } from 'path';
 import { createHash } from 'crypto';
+import { logger } from '../../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -141,6 +142,8 @@ export class AutoMemorySync {
 
   private runSync(force: boolean): SyncResult {
     const result: SyncResult = { imported: 0, skipped: 0, errors: [] };
+
+    logger.debug(`AutoMemorySync.runSync: memoryDir=${this.memoryDir} force=${force}`);
 
     // Directory must exist
     if (!existsSync(this.memoryDir)) {

@@ -9,6 +9,7 @@
 
 import { Database } from 'bun:sqlite';
 import { createHash } from 'crypto';
+import { logger } from '../../utils/logger.js';
 
 export interface DeduplicationResult {
   isDuplicate: boolean;
@@ -32,6 +33,7 @@ export class DeduplicationService {
     toolName: string,
     narrative: string
   ): DeduplicationResult {
+    logger.debug(`DeduplicationService.checkPostToolUse: session=${sessionId} tool=${toolName}`);
     const fiveMinAgo = Date.now() - 5 * 60 * 1000;
 
     // Find the most recent observation matching session + tool within 5-min window.

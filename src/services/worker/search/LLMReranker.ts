@@ -12,6 +12,8 @@
  *   real HTTP calls are made until a subclass or integration wires them in
  */
 
+import { logger } from '../../../utils/logger.js';
+
 export interface RerankerConfig {
   enabled: boolean;
   provider: 'claude' | 'gemini' | 'openrouter';
@@ -80,6 +82,7 @@ export class LLMReranker {
       };
     }
 
+    logger.debug(`LLMReranker.rerank: provider=${this.config.provider} candidates=${candidates.length}`);
     try {
       const prompt = this.buildPrompt(query, candidates);
       const rawResponse = await this.callProvider(prompt);

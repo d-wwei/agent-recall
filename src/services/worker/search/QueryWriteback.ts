@@ -12,6 +12,7 @@
 
 import { createHash } from 'crypto';
 import type { Database } from 'bun:sqlite';
+import { logger } from '../../../utils/logger.js';
 
 export interface WritebackResult {
   observationId: number | null;
@@ -43,6 +44,7 @@ export class QueryWriteback {
    * preventing feedback loops.
    */
   write(project: string, query: string, synthesis: string): WritebackResult {
+    logger.debug(`QueryWriteback.write: project=${project} query=${query.substring(0, 50)}`);
     const now = new Date();
     const validUntil = new Date(now.getTime() + QueryWriteback.TTL_DAYS * 24 * 60 * 60 * 1000);
 

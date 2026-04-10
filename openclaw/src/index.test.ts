@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdtemp, readFile, rm } from "fs/promises";
+import { existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import claudeMemPlugin from "./index.js";
@@ -628,12 +629,7 @@ describe("before_prompt_build context injection", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      let memoryExists = true;
-      try {
-        await readFile(join(tmpDir, "MEMORY.md"), "utf-8");
-      } catch {
-        memoryExists = false;
-      }
+      const memoryExists = existsSync(join(tmpDir, "MEMORY.md"));
       assert.ok(!memoryExists, "MEMORY.md should not be created by before_agent_start");
     } finally {
       await rm(tmpDir, { recursive: true, force: true });
@@ -663,12 +659,7 @@ describe("before_prompt_build context injection", () => {
       const contextRequests = receivedRequests.filter((r) => r.url?.startsWith("/api/context/inject"));
       assert.equal(contextRequests.length, 0, "tool_result_persist should not fetch context");
 
-      let memoryExists = true;
-      try {
-        await readFile(join(tmpDir, "MEMORY.md"), "utf-8");
-      } catch {
-        memoryExists = false;
-      }
+      const memoryExists = existsSync(join(tmpDir, "MEMORY.md"));
       assert.ok(!memoryExists, "MEMORY.md should not be written by tool_result_persist");
     } finally {
       await rm(tmpDir, { recursive: true, force: true });

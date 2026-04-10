@@ -30,17 +30,7 @@
     "./modes/*": "./plugin/modes/*"
   },
   "files": [
-    "plugin/hooks",
-    "plugin/modes",
-    "plugin/scripts",
-    "plugin/skills",
-    "plugin/ui",
-    "plugin/CLAUDE.md",
-    "plugin/.claude-plugin",
-    "plugin/.mcp.json",
-    "plugin/.cli-installed",
-    "plugin/.install-version",
-    "plugin/package.json",
+    "plugin",
     "!plugin/scripts/claude-mem"
   ],
   "engines": {

@@ -7,6 +7,7 @@
  */
 
 import { Database } from 'bun:sqlite';
+import { logger } from '../../../utils/logger.js';
 
 export interface AssistantSearchResult {
   sessionId: string;
@@ -56,6 +57,7 @@ export class AssistantRetrieval {
    */
   search(query: string, project: string): AssistantSearchResult[] {
     const keywords = this.extractKeywords(query);
+    logger.debug(`AssistantRetrieval.search: keywords=${keywords.join(',')} project=${project}`);
     if (keywords.length === 0) {
       return [];
     }

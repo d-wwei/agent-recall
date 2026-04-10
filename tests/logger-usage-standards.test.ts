@@ -38,6 +38,12 @@ const EXCLUDED_PATTERNS = [
   /cli\/hook-command\.ts$/,  // CLI hook command uses console.log/error for hook protocol output
   /cli\/handlers\/user-message\.ts$/,  // User message handler uses console.error for user-visible context
   /services\/transcripts\/cli\.ts$/,  // CLI transcript subcommands use console.log for user-visible interactive output
+  /servers\/RecallMcpTools\.ts$/,     // Pure interface definitions — no logging needed
+  /services\/worker\/BatchIngestionQueue\.ts$/, // Pure timer/queue logic with no I/O
+  /services\/worker\/search\/TemporalParser\.ts$/, // Pure date-parsing algorithm
+  /services\/worker\/search\/FusionRanker\.ts$/, // Pure scoring algorithm
+  /services\/worker\/search\/SearchExplainer\.ts$/, // Pure keyword-matching algorithm
+  /services\/worker\/search\/OutputFormatter\.ts$/, // Pure formatting — no I/O
 ];
 
 // Files that should always use logger (core business logic)
