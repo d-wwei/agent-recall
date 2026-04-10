@@ -50,6 +50,7 @@ export class MigrationRunner {
     this.createAgentDiaryTable(); // migration 36
     this.createMarkdownSyncTable(); // migration 37
     this.createActivityLogTable(); // migration 38
+    this.addSessionPrivacyColumn(); // migration 39
   }
 
   /**
@@ -1376,5 +1377,28 @@ export class MigrationRunner {
     `);
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(38, new Date().toISOString());
     logger.debug('DB', 'activity_log table created successfully');
+  }
+
+  /**
+   * Add has_private_content column to sdk_sessions (migration 39)
+   *
+   * When any observation in a session is marked private, the entire session
+   * is flagged so PrivacyGuard can exclude all observations from that session
+   * during compilation — not just the tagged ones.
+   */
+  private addSessionPrivacyColumn(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(39);
+    if (applied) return;
+
+    // Check if column already exists before adding
+    const columns = this.db.prepare('PRAGMA table_info(sdk_sessions)').all() as { name: string }[];
+    const hasColumn = columns.some(c => c.name === 'has_private_content');
+
+    if (!hasColumn) {
+      this.db.exec('ALTER TABLE sdk_sessions ADD COLUMN has_private_content INTEGER DEFAULT 0');
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(39, new Date().toISOString());
+    logger.debug('DB', 'has_private_content column added to sdk_sessions');
   }
 }
