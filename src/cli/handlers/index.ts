@@ -14,11 +14,13 @@ import { summarizeHandler } from './summarize.js';
 import { userMessageHandler } from './user-message.js';
 import { fileEditHandler } from './file-edit.js';
 import { sessionCompleteHandler } from './session-complete.js';
+import { preToolUseHandler } from './pre-tool-use.js';
 
 export type EventType =
   | 'context'           // SessionStart - inject context
   | 'session-init'      // UserPromptSubmit - initialize session
   | 'observation'       // PostToolUse - save observation
+  | 'pre-tool-use'      // PreToolUse - proactive memory hints
   | 'summarize'         // Stop - generate summary (phase 1)
   | 'session-complete'  // Stop - complete session (phase 2) - fixes #842
   | 'user-message'      // SessionStart (parallel) - display to user
@@ -28,6 +30,7 @@ const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
   'session-init': sessionInitHandler,
   'observation': observationHandler,
+  'pre-tool-use': preToolUseHandler,
   'summarize': summarizeHandler,
   'session-complete': sessionCompleteHandler,
   'user-message': userMessageHandler,
@@ -65,3 +68,4 @@ export { summarizeHandler } from './summarize.js';
 export { userMessageHandler } from './user-message.js';
 export { fileEditHandler } from './file-edit.js';
 export { sessionCompleteHandler } from './session-complete.js';
+export { preToolUseHandler } from './pre-tool-use.js';

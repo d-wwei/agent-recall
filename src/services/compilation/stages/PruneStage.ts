@@ -74,24 +74,25 @@ export class PruneStage {
     ctx: CompilationContext
   ): void {
     const idsJson = JSON.stringify(page.sourceObservationIds);
+    const timelineJson = JSON.stringify(page.evidenceTimeline ?? []);
 
     if (existing) {
       ctx.db
         .prepare(
           `UPDATE compiled_knowledge
            SET content = ?, source_observation_ids = ?, confidence = ?,
-               version = version + 1, compiled_at = ?
+               evidence_timeline = ?, version = version + 1, compiled_at = ?
            WHERE id = ?`
         )
-        .run(page.content, idsJson, page.confidence, now, existing.id);
+        .run(page.content, idsJson, page.confidence, timelineJson, now, existing.id);
     } else {
       ctx.db
         .prepare(
           `INSERT INTO compiled_knowledge
-           (project, topic, content, source_observation_ids, confidence, compiled_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
+           (project, topic, content, source_observation_ids, confidence, evidence_timeline, compiled_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(ctx.project, page.topic, page.content, idsJson, page.confidence, now);
+        .run(ctx.project, page.topic, page.content, idsJson, page.confidence, timelineJson, now);
     }
   }
 

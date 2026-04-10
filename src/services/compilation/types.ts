@@ -43,6 +43,15 @@ export interface ObservationRow {
 
 // ─── Output Types ────────────────────────────────────────────────────────────
 
+/** A single evidence entry linking compiled knowledge to a source observation. */
+export interface EvidenceEntry {
+  observationId: number;
+  date: number;          // created_at_epoch
+  type: string;
+  title: string | null;
+  summary: string;       // truncated narrative
+}
+
 /** A single compiled knowledge page ready to be written to the database. */
 export interface CompiledPage {
   topic: string;
@@ -50,6 +59,7 @@ export interface CompiledPage {
   sourceObservationIds: number[];
   confidence: 'high' | 'medium' | 'low';
   classification: 'status' | 'fact' | 'event';
+  evidenceTimeline: EvidenceEntry[];
 }
 
 /** Summary returned after a full compilation run. */
