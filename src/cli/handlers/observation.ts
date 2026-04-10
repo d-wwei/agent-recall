@@ -19,8 +19,8 @@ import { USER_SETTINGS_PATH } from '../../shared/paths.js';
  */
 const observationCounts: Map<string, number> = new Map();
 
-/** Every N observations we fire a non-blocking incremental-save request */
-const INCREMENTAL_SAVE_INTERVAL = 10;
+/** Fire incremental-save checkpoint on every tool call for zero data loss */
+const INCREMENTAL_SAVE_INTERVAL = 1;
 
 export const observationHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
