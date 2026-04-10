@@ -70,7 +70,7 @@ export function querySummaries(
   config: ContextConfig
 ): SessionSummary[] {
   return db.db.prepare(`
-    SELECT id, memory_session_id, request, investigated, learned, completed, next_steps, created_at, created_at_epoch
+    SELECT id, memory_session_id, request, investigated, learned, completed, next_steps, structured_summary, created_at, created_at_epoch
     FROM session_summaries
     WHERE project = ?
     ORDER BY created_at_epoch DESC
@@ -134,7 +134,7 @@ export function querySummariesMulti(
   const projectPlaceholders = projects.map(() => '?').join(',');
 
   return db.db.prepare(`
-    SELECT id, memory_session_id, request, investigated, learned, completed, next_steps, created_at, created_at_epoch, project
+    SELECT id, memory_session_id, request, investigated, learned, completed, next_steps, structured_summary, created_at, created_at_epoch, project
     FROM session_summaries
     WHERE project IN (${projectPlaceholders})
     ORDER BY created_at_epoch DESC

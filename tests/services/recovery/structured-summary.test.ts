@@ -150,7 +150,7 @@ describe('StructuredSummaryBuilder', () => {
       expect(summary.keyDiscoveries).not.toContain('Minor performance issue');
     });
 
-    it('should build resumeContext from completed + in-progress + next_steps', () => {
+    it('should build resumeContext prioritizing in-progress work', () => {
       const observations = [
         makeObs({ type: 'feature', title: 'Added auth module' }),
         makeObs({ narrative: 'WIP: Writing unit tests', title: 'Unit tests' }),
@@ -159,9 +159,8 @@ describe('StructuredSummaryBuilder', () => {
 
       const summary = builder.buildFromSession('project', 'session-1', observations, rawSummary, Date.now() - 60000);
 
-      expect(summary.resumeContext).toContain('Added auth module');
+      // New enhanced resumeContext prioritizes in-progress over completed
       expect(summary.resumeContext).toContain('Unit tests');
-      expect(summary.resumeContext).toContain('Finish tests');
     });
 
     it('should calculate duration correctly for 45 minutes', () => {
@@ -351,6 +350,240 @@ describe('StructuredSummaryBuilder', () => {
       };
 
       expect(() => builder.storeStructuredSummary('test-project', 'nonexistent', summary)).not.toThrow();
+    });
+  });
+
+  describe('buildEnhancedResumeContext', () => {
+    it('should prioritize in-progress over completed', () => {
+      const result = builder.buildEnhancedResumeContext(
+        ['Fixed the login bug'],
+        ['Refactoring auth service'],
+        [],
+        [],
+        null,
+        null
+      );
+
+      expect(result).toContain('Continue: Refactoring auth service');
+      expect(result).not.toContain('Fixed the login bug');
+    });
+
+    it('should mention blockers prominently', () => {
+      const result = builder.buildEnhancedResumeContext(
+        [],
+        ['Working on API'],
+        [],
+        ['Cannot connect to staging database'],
+        null,
+        null
+      );
+
+      expect(result).toContain('Blocked: Cannot connect to staging database');
+    });
+
+    it('should include file hints from checkpoint', () => {
+      const checkpoint = {
+        currentTask: 'Fixing auth',
+        filesModified: ['src/auth.ts', 'src/middleware.ts', 'src/routes.ts'],
+        filesRead: [],
+        testStatus: null,
+        pendingWork: [],
+        lastToolAction: 'Edit src/routes.ts',
+        observationCount: 5,
+        resumeHint: '',
+        savedAt: new Date().toISOString(),
+        taskHistory: [],
+        conversationTopics: [],
+      };
+
+      const result = builder.buildEnhancedResumeContext(
+        [],
+        ['Working on routes'],
+        [],
+        [],
+        checkpoint,
+        null
+      );
+
+      expect(result).toContain('Files to check:');
+      expect(result).toContain('src/routes.ts');
+    });
+
+    it('should mention failing tests from checkpoint', () => {
+      const checkpoint = {
+        currentTask: 'Fix tests',
+        filesModified: ['src/auth.ts'],
+        filesRead: [],
+        testStatus: '10 pass, 3 fail',
+        pendingWork: [],
+        lastToolAction: 'Run tests',
+        observationCount: 3,
+        resumeHint: '',
+        savedAt: new Date().toISOString(),
+        taskHistory: [],
+        conversationTopics: [],
+      };
+
+      const result = builder.buildEnhancedResumeContext(
+        [],
+        [],
+        [],
+        [],
+        checkpoint,
+        null
+      );
+
+      expect(result).toContain('Fix failing tests first');
+      expect(result).toContain('3 fail');
+    });
+
+    it('should fall back to rawNextSteps when everything is empty', () => {
+      const result = builder.buildEnhancedResumeContext(
+        [],
+        [],
+        [],
+        [],
+        null,
+        'Deploy to staging and run integration tests'
+      );
+
+      expect(result).toBe('Deploy to staging and run integration tests');
+    });
+
+    it('should fall back to completed summary when no pending work', () => {
+      const result = builder.buildEnhancedResumeContext(
+        ['Implemented auth', 'Added tests'],
+        [],
+        [],
+        [],
+        null,
+        null
+      );
+
+      expect(result).toContain('Last session completed');
+      expect(result).toContain('Implemented auth');
+      expect(result).toContain('No pending work detected');
+    });
+
+    it('should include decisions to remember', () => {
+      const result = builder.buildEnhancedResumeContext(
+        [],
+        ['Building the API'],
+        ['Switched from REST to GraphQL'],
+        [],
+        null,
+        null
+      );
+
+      expect(result).toContain('Remember: Switched from REST to GraphQL');
+    });
+
+    it('should include multiple pending items', () => {
+      const result = builder.buildEnhancedResumeContext(
+        [],
+        ['Fix auth bug', 'Update docs', 'Add tests'],
+        [],
+        [],
+        null,
+        null
+      );
+
+      expect(result).toContain('Continue: Fix auth bug');
+      expect(result).toContain('Also pending: Update docs, Add tests');
+    });
+  });
+
+  describe('buildAIResumePrompt', () => {
+    it('should include all summary fields', () => {
+      const summary: StructuredSummary = {
+        tasksCompleted: ['Fixed auth bug'],
+        tasksInProgress: ['Writing tests'],
+        decisionsMade: ['Use SQLite'],
+        blockers: ['CI pipeline broken'],
+        keyDiscoveries: ['Found race condition'],
+        resumeContext: 'Fix CI first.',
+        sessionDuration: '30 minutes',
+        observationCount: 5,
+      };
+
+      const prompt = builder.buildAIResumePrompt(summary);
+
+      expect(prompt).toContain('Fixed auth bug');
+      expect(prompt).toContain('Writing tests');
+      expect(prompt).toContain('Use SQLite');
+      expect(prompt).toContain('CI pipeline broken');
+      expect(prompt).toContain('Found race condition');
+      expect(prompt).toContain('what to do first');
+    });
+
+    it('should handle empty summary gracefully', () => {
+      const summary: StructuredSummary = {
+        tasksCompleted: [],
+        tasksInProgress: [],
+        decisionsMade: [],
+        blockers: [],
+        keyDiscoveries: [],
+        resumeContext: '',
+        sessionDuration: '5 minutes',
+        observationCount: 0,
+      };
+
+      const prompt = builder.buildAIResumePrompt(summary);
+
+      expect(prompt).toContain('nothing');
+      expect(prompt).toContain('none');
+    });
+  });
+
+  describe('enhanced detection', () => {
+    it('should detect modified-but-not-completed files as in-progress', () => {
+      // Create 3+ observations with files modified but none completed
+      const observations = [
+        makeObs({ title: 'Read config', narrative: 'Reading configuration', files_modified: JSON.stringify(['src/config.ts']) }),
+        makeObs({ title: 'Edit routes', narrative: 'Editing route handlers', files_modified: JSON.stringify(['src/routes.ts']) }),
+        makeObs({ title: 'Edit middleware', narrative: 'Updating middleware', files_modified: JSON.stringify(['src/middleware.ts']) }),
+      ];
+
+      const summary = builder.buildFromSession('project', 'session-1', observations, null, Date.now() - 60000);
+
+      // Files from last 3 obs should appear as in-progress since nothing is completed
+      const inProgressStr = summary.tasksInProgress.join(' ');
+      // At least some of the modified files should be flagged
+      expect(summary.tasksInProgress.length).toBeGreaterThan(0);
+    });
+
+    it('should detect repeated file modifications as in-progress', () => {
+      const observations = [
+        makeObs({ title: 'Edit auth v1', narrative: 'First attempt', files_modified: JSON.stringify(['src/auth.ts']) }),
+        makeObs({ title: 'Edit auth v2', narrative: 'Second attempt', files_modified: JSON.stringify(['src/auth.ts']) }),
+        makeObs({ title: 'Edit auth v3', narrative: 'Third attempt', files_modified: JSON.stringify(['src/auth.ts']) }),
+      ];
+
+      const summary = builder.buildFromSession('project', 'session-1', observations, null, Date.now() - 60000);
+
+      expect(summary.tasksInProgress.some(t => t.includes('Repeatedly modified') && t.includes('src/auth.ts'))).toBe(true);
+    });
+
+    it('should detect blockers from facts field with fail keyword', () => {
+      const observations = [
+        makeObs({ title: 'Test run', narrative: 'Executed test suite', facts: 'auth.test.ts: 3 fail' }),
+      ];
+
+      const summary = builder.buildFromSession('project', 'session-1', observations, null, Date.now() - 60000);
+
+      expect(summary.blockers.length).toBeGreaterThan(0);
+      expect(summary.blockers[0]).toContain('Test run');
+    });
+
+    it('should detect explicit blockers like "blocked by"', () => {
+      const observations = [
+        makeObs({ title: 'API integration', narrative: 'Blocked by missing API key from ops team' }),
+      ];
+
+      const summary = builder.buildFromSession('project', 'session-1', observations, null, Date.now() - 60000);
+
+      expect(summary.blockers.length).toBeGreaterThan(0);
+      expect(summary.blockers[0]).toContain('API integration');
     });
   });
 

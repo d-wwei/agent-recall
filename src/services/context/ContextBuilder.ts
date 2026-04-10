@@ -196,24 +196,64 @@ function buildContextOutput(
     output.push(...completenessHints);
   }
 
-  // Agent Recall: Show last session's next steps prominently (if no active task)
-  // This helps the user immediately see what they were doing last time
+  // Agent Recall: Show structured resume context or next steps prominently (if no active task)
+  // Prefer structured_summary.resumeContext (richer, prioritized) over raw next_steps
   // L1 — gate by token budget
-  if (!activeTask && summaries.length > 0 && summaries[0].next_steps) {
-    const nextSteps = summaries[0].next_steps.trim();
-    if (nextSteps) {
-      let nextStepsLines: string[];
-      if (useColors) {
-        nextStepsLines = [`\x1b[33m◆ Last session's next steps:\x1b[0m ${nextSteps}`, ''];
-      } else {
-        nextStepsLines = [`**Last session's next steps:** ${nextSteps}`, ''];
+  if (!activeTask && summaries.length > 0) {
+    let resumeRendered = false;
+
+    // Try structured summary first
+    if (summaries[0].structured_summary) {
+      try {
+        const parsed = JSON.parse(summaries[0].structured_summary);
+        if (parsed.resumeContext && parsed.resumeContext !== 'No specific resume context available.') {
+          const resumeLines: string[] = [];
+          if (useColors) {
+            resumeLines.push(`\x1b[33m\x1b[1m◆ Session Resume Context:\x1b[0m`);
+          } else {
+            resumeLines.push(`> **Session Resume Context:**`);
+          }
+          // Render each line of resumeContext as a blockquote
+          for (const line of parsed.resumeContext.split('\n')) {
+            if (useColors) {
+              resumeLines.push(`\x1b[33m  ${line}\x1b[0m`);
+            } else {
+              resumeLines.push(`> ${line}`);
+            }
+          }
+          resumeLines.push('');
+          const resumeText = resumeLines.join('\n');
+          const resumeTokens = TokenBudgetManager.estimateTokens(resumeText);
+          if (!budgetManager || budgetManager.canFit('L1', resumeTokens)) {
+            output.push(...resumeLines);
+            if (budgetManager) {
+              budgetManager.consume('L1', resumeTokens);
+            }
+            resumeRendered = true;
+          }
+        }
+      } catch {
+        // structured_summary parse failed, fall back to next_steps
       }
-      const nextStepsText = nextStepsLines.join('\n');
-      const nextStepsTokens = TokenBudgetManager.estimateTokens(nextStepsText);
-      if (!budgetManager || budgetManager.canFit('L1', nextStepsTokens)) {
-        output.push(...nextStepsLines);
-        if (budgetManager) {
-          budgetManager.consume('L1', nextStepsTokens);
+    }
+
+    // Fall back to raw next_steps if no structured summary rendered
+    if (!resumeRendered && summaries[0].next_steps) {
+      const nextSteps = summaries[0].next_steps.trim();
+      if (nextSteps) {
+        let nextStepsLines: string[];
+        if (useColors) {
+          nextStepsLines = [`\x1b[33m◆ Last session's next steps:\x1b[0m ${nextSteps}`, ''];
+        } else {
+          nextStepsLines = [`**Last session's next steps:** ${nextSteps}`, ''];
+        }
+        const nextStepsText = nextStepsLines.join('\n');
+        const nextStepsTokens = TokenBudgetManager.estimateTokens(nextStepsText);
+        if (!budgetManager || budgetManager.canFit('L1', nextStepsTokens)) {
+          output.push(...nextStepsLines);
+          if (budgetManager) {
+            budgetManager.consume('L1', nextStepsTokens);
+          }
         }
       }
     }

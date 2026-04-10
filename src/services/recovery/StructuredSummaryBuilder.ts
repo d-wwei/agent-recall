@@ -7,6 +7,7 @@
 
 import { Database } from 'bun:sqlite';
 import { logger } from '../../utils/logger.js';
+import type { Checkpoint } from './CheckpointService.js';
 
 export interface StructuredSummary {
   tasksCompleted: string[];      // things that got done
@@ -30,14 +31,18 @@ export class StructuredSummaryBuilder {
     sessionId: string,
     observations: any[],
     rawSummary: any | null,
-    sessionStartEpoch: number
+    sessionStartEpoch: number,
+    latestCheckpoint?: Checkpoint | null
   ): StructuredSummary {
     const tasksCompleted = this.extractCompleted(observations, rawSummary);
-    const tasksInProgress = this.extractInProgress(observations);
+    const tasksInProgress = this.extractInProgress(observations, tasksCompleted);
     const decisionsMade = this.extractDecisions(observations);
     const blockers = this.extractBlockers(observations);
     const keyDiscoveries = this.extractDiscoveries(observations);
-    const resumeContext = this.buildResumeContext(rawSummary, tasksInProgress, tasksCompleted);
+    const resumeContext = this.buildEnhancedResumeContext(
+      tasksCompleted, tasksInProgress, decisionsMade, blockers,
+      latestCheckpoint || null, rawSummary?.next_steps || null
+    );
     const sessionDuration = this.calculateDuration(sessionStartEpoch);
 
     return {
@@ -170,16 +175,18 @@ export class StructuredSummaryBuilder {
     return deduplicate(completed);
   }
 
-  private extractInProgress(observations: any[]): string[] {
+  private extractInProgress(observations: any[], tasksCompleted: string[] = []): string[] {
     const inProgress: string[] = [];
-    const wipPatterns = /\b(WIP|TODO|partial|started|in progress|not yet|unfinished|working on|began|incomplete)\b/i;
+    const wipPatterns = /\b(WIP|TODO|partial|started|in progress|not yet|unfinished|working on|began|incomplete|halfway|beginning)\b/i;
+
+    // Set of completed task signatures (for filtering)
+    const completedLower = new Set(tasksCompleted.map(t => t.toLowerCase().substring(0, 30)));
 
     for (const obs of observations) {
       const narrative = obs.narrative || '';
       const title = obs.title || '';
 
       if (wipPatterns.test(narrative) || wipPatterns.test(title)) {
-        // Try to add file hint
         let hint = title || narrative.substring(0, 80);
         if (obs.files_modified) {
           const files = parseFiles(obs.files_modified);
@@ -188,6 +195,39 @@ export class StructuredSummaryBuilder {
           }
         }
         inProgress.push(hint);
+      }
+    }
+
+    // Better detection: same file modified 3+ times = struggling (checked first for priority)
+    const fileModCounts = new Map<string, number>();
+    for (const obs of observations) {
+      if (obs.files_modified) {
+        const files = parseFiles(obs.files_modified);
+        for (const file of files) {
+          fileModCounts.set(file, (fileModCounts.get(file) || 0) + 1);
+        }
+      }
+    }
+    for (const [file, count] of fileModCounts) {
+      if (count >= 3 && !inProgress.some(p => p.includes(file))) {
+        inProgress.push(`Repeatedly modified (${count}x): ${file}`);
+      }
+    }
+
+    // Better detection: files modified in LAST 3 observations but NOT mentioned in completed
+    if (observations.length >= 3) {
+      const last3 = observations.slice(-3);
+      for (const obs of last3) {
+        if (obs.files_modified) {
+          const files = parseFiles(obs.files_modified);
+          for (const file of files) {
+            const isCompletedFile = completedLower.has(file.toLowerCase().substring(0, 30)) ||
+              Array.from(completedLower).some(c => c.includes(file.toLowerCase().substring(0, 20)));
+            if (!isCompletedFile && !inProgress.some(p => p.includes(file))) {
+              inProgress.push(`Modified but not completed: ${file}`);
+            }
+          }
+        }
       }
     }
 
@@ -216,12 +256,23 @@ export class StructuredSummaryBuilder {
   private extractBlockers(observations: any[]): string[] {
     const blockers: string[] = [];
     const blockerPatterns = /\b(blocked|fail(?:ed|ing|ure)?|error|can't|cannot|unable to|broken|crash|exception|timeout)\b/i;
+    const explicitBlockerPatterns = /\b(blocked by|waiting for|can't proceed|dependency|depends on)\b/i;
 
     for (const obs of observations) {
       const narrative = obs.narrative || '';
       const title = obs.title || '';
+      const facts = obs.facts || '';
+      const allText = `${title} ${narrative} ${facts}`;
 
-      if (blockerPatterns.test(narrative) || blockerPatterns.test(title)) {
+      // Explicit blockers get priority
+      if (explicitBlockerPatterns.test(allText)) {
+        blockers.push(title || narrative.substring(0, 80));
+      } else if (blockerPatterns.test(narrative) || blockerPatterns.test(title)) {
+        blockers.push(title || narrative.substring(0, 80));
+      }
+
+      // Test failures in facts field
+      if (facts && /\bfail/i.test(facts) && !blockers.some(b => b === (title || narrative.substring(0, 80)))) {
         blockers.push(title || narrative.substring(0, 80));
       }
     }
@@ -246,33 +297,81 @@ export class StructuredSummaryBuilder {
     return deduplicate(discoveries);
   }
 
-  private buildResumeContext(
-    rawSummary: any | null,
+  /**
+   * Build prioritized resume context — the key improvement for session recovery.
+   * Prioritizes unfinished work, then blockers, then file hints, then decisions.
+   * Falls back gracefully to rawNextSteps or completed summary.
+   */
+  buildEnhancedResumeContext(
+    tasksCompleted: string[],
     tasksInProgress: string[],
-    tasksCompleted: string[]
+    decisionsMade: string[],
+    blockers: string[],
+    latestCheckpoint: Checkpoint | null,
+    rawNextSteps: string | null
   ): string {
     const parts: string[] = [];
 
-    // Start with completed summary
-    if (tasksCompleted.length > 0) {
-      parts.push(`Completed: ${tasksCompleted.join('; ')}.`);
-    }
-
-    // Add in-progress items
+    // Priority 1: What's unfinished (most important for resume)
     if (tasksInProgress.length > 0) {
-      parts.push(`Still in progress: ${tasksInProgress.join('; ')}.`);
+      parts.push(`Continue: ${tasksInProgress[0]}`);
+      if (tasksInProgress.length > 1) {
+        parts.push(`Also pending: ${tasksInProgress.slice(1).join(', ')}`);
+      }
     }
 
-    // Add next_steps from raw summary
-    if (rawSummary?.next_steps) {
-      parts.push(`Next steps: ${rawSummary.next_steps.trim()}`);
+    // Priority 2: Blockers need attention first
+    if (blockers.length > 0) {
+      parts.push(`Blocked: ${blockers[0]}`);
+    }
+
+    // Priority 3: Where exactly to look (from checkpoint)
+    if (latestCheckpoint) {
+      const recentFiles = latestCheckpoint.filesModified.slice(-3);
+      if (recentFiles.length > 0) {
+        parts.push(`Files to check: ${recentFiles.join(', ')}`);
+      }
+      if (latestCheckpoint.testStatus && /fail/i.test(latestCheckpoint.testStatus)) {
+        parts.push(`Fix failing tests first: ${latestCheckpoint.testStatus}`);
+      }
+    }
+
+    // Priority 4: Decisions to remember
+    if (decisionsMade.length > 0) {
+      parts.push(`Remember: ${decisionsMade[0]}`);
+    }
+
+    // Priority 5: Fall back to raw next_steps
+    if (parts.length === 0 && rawNextSteps) {
+      parts.push(rawNextSteps.trim());
+    }
+
+    // Priority 6: Nothing? At least summarize what was done
+    if (parts.length === 0 && tasksCompleted.length > 0) {
+      parts.push(`Last session completed: ${tasksCompleted.join(', ')}. No pending work detected.`);
     }
 
     if (parts.length === 0) {
       return 'No specific resume context available.';
     }
 
-    return parts.join(' ');
+    return parts.join('\n');
+  }
+
+  /**
+   * Build a prompt template that could be sent to an LLM for even richer resume context.
+   * The actual LLM call is optional — this just provides the template.
+   */
+  buildAIResumePrompt(summary: StructuredSummary): string {
+    return `Summarize this session for someone returning tomorrow. Be specific about files and line numbers.
+
+Completed: ${summary.tasksCompleted.join('; ') || 'nothing'}
+In Progress: ${summary.tasksInProgress.join('; ') || 'nothing'}
+Decisions: ${summary.decisionsMade.join('; ') || 'none'}
+Blockers: ${summary.blockers.join('; ') || 'none'}
+Discoveries: ${summary.keyDiscoveries.join('; ') || 'none'}
+
+Write 2-3 sentences: what to do first, what to watch out for, and any context they need.`;
   }
 
   private calculateDuration(sessionStartEpoch: number): string {

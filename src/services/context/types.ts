@@ -79,6 +79,8 @@ export interface SessionSummary {
   next_steps: string | null;
   created_at: string;
   created_at_epoch: number;
+  /** Structured summary JSON (from StructuredSummaryBuilder) */
+  structured_summary?: string | null;
   /** Project this summary belongs to (for multi-project queries) */
   project?: string;
 }
