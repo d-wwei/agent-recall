@@ -11,6 +11,7 @@
  *   outputDir/diary/YYYY-MM-DD.md
  */
 import { Database } from 'bun:sqlite';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -101,6 +102,7 @@ export class MarkdownExporter {
 
       const markdown = this.renderProfileMarkdown(profileType, content, row);
       fs.writeFileSync(filePath, markdown, 'utf8');
+      this.recordSyncHash(filePath, markdown);
     }
   }
 
@@ -128,13 +130,16 @@ export class MarkdownExporter {
 
       const markdown = this.renderKnowledgeMarkdown(row);
       fs.writeFileSync(filePath, markdown, 'utf8');
+      this.recordSyncHash(filePath, markdown);
 
       const confidence = row.confidence ? ` _(${row.confidence})_` : '';
       indexLines.push(`- [${row.topic}](./${filename})${confidence}`);
     }
 
     const indexPath = path.join(knowledgeDir, 'index.md');
-    fs.writeFileSync(indexPath, indexLines.join('\n') + '\n', 'utf8');
+    const indexContent = indexLines.join('\n') + '\n';
+    fs.writeFileSync(indexPath, indexContent, 'utf8');
+    this.recordSyncHash(indexPath, indexContent);
   }
 
   /**
@@ -165,6 +170,7 @@ export class MarkdownExporter {
       const filePath = path.join(diaryDir, `${date}.md`);
       const markdown = this.renderDiaryMarkdown(date, entries);
       fs.writeFileSync(filePath, markdown, 'utf8');
+      this.recordSyncHash(filePath, markdown);
     }
   }
 
@@ -247,6 +253,22 @@ export class MarkdownExporter {
   // ─────────────────────────────────────────────
   // Utility helpers
   // ─────────────────────────────────────────────
+
+  /**
+   * Record the content hash to markdown_sync table after writing a file.
+   * Both last_db_hash and last_file_hash are set to the same value on export,
+   * indicating the file and DB are in sync.
+   */
+  private recordSyncHash(filePath: string, content: string): void {
+    try {
+      const hash = createHash('sha256').update(content).digest('hex');
+      this.db.prepare(
+        'INSERT OR REPLACE INTO markdown_sync (file_path, last_db_hash, last_file_hash, last_sync_at) VALUES (?, ?, ?, ?)'
+      ).run(filePath, hash, hash, new Date().toISOString());
+    } catch {
+      // Non-blocking: markdown_sync table may not exist yet in older installs
+    }
+  }
 
   /** Count files written by an export method via stat before/after */
   private countWrites(fn: () => void): number {
