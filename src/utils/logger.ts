@@ -26,7 +26,8 @@ export type Component =
   | 'QUEUE'
   | 'SAVE' | 'SDK' | 'SDK_SPAWN' | 'SEARCH' | 'SECURITY' | 'SESSION' | 'SETTINGS' | 'SHUTDOWN' | 'SYSTEM'
   | 'TEMPLATE' | 'TRANSCRIPT'
-  | 'WORKER';
+  | 'WORKER'
+  | 'SEEKDB_SYNC';
 
 interface LogContext {
   sessionId?: number;
