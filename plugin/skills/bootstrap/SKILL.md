@@ -8,6 +8,21 @@ This skill guides you through setting up your Agent Recall persona. It runs auto
 2. If `status` is `completed`, skip — you're already set up
 3. If `status` is `pending` or `in_progress`, conduct the interview below
 
+## Step 0: Profile Discovery (Before Interview)
+
+Before asking any questions, check for existing profile data:
+
+1. Call `GET http://localhost:37777/api/persona/discover`
+2. If `sources_found` is non-empty, present discovered values grouped by confidence:
+   - **High confidence**: "I found your name is **[value]** (from [source]). Is this correct?"
+   - **Medium confidence**: "It looks like your role might be **[value]**. Is that right?"
+   - **Low confidence**: mention as suggestion, don't assume
+3. If `conflicts` array is non-empty, present each conflict:
+   "I found different values for [field]: **[value1]** vs **[value2]**. Which is correct?"
+4. After the user confirms discovered fields, save them via `POST /api/persona/profile`
+5. If all required fields (user.name, user.role, style.tone, workflow.preferred_role) are covered by confirmed discoveries, skip the interview rounds and go directly to Step 4 (Project Discovery)
+6. If discovery endpoint is unavailable (worker not running), proceed to the interview as normal
+
 ## Interview Protocol
 
 - Ask 1-3 questions per turn (natural conversation, not a questionnaire)

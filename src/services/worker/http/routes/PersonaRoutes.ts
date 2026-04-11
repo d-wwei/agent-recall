@@ -9,6 +9,7 @@ import { logger } from '../../../../utils/logger.js';
 import { AuditService } from '../../../audit/AuditService.js';
 import type { PersonaService } from '../../../persona/PersonaService.js';
 import { ProjectScanService } from '../../../project/ProjectScanService.js';
+import { ProfileDiscoveryService } from '../../../persona/ProfileDiscoveryService.js';
 
 export class PersonaRoutes extends BaseRouteHandler {
   private db: Database | null;
@@ -47,6 +48,9 @@ export class PersonaRoutes extends BaseRouteHandler {
 
     // Project scan endpoint
     app.get('/api/projects/scan', this.wrapHandler(this.handleProjectScan.bind(this)));
+
+    // Profile discovery endpoint
+    app.get('/api/persona/discover', this.wrapHandler(this.handleDiscover.bind(this)));
   }
 
   // ==========================================
@@ -242,5 +246,15 @@ export class PersonaRoutes extends BaseRouteHandler {
     const scanService = new ProjectScanService(this.db);
     const results = scanService.scanProjects();
     res.json(results);
+  }
+
+  private handleDiscover(req: Request, res: Response): void {
+    if (!this.db) {
+      res.status(503).json({ error: 'Database not available for discovery' });
+      return;
+    }
+    const discoveryService = new ProfileDiscoveryService(this.db);
+    const result = discoveryService.discover();
+    res.json(result);
   }
 }

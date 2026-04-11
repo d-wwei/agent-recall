@@ -29,7 +29,8 @@ export type Component =
   | 'WORKER'
   | 'SEEKDB_SYNC' | 'COLLAB' | 'TEAM' | 'LEARNING' | 'CROSS_PROJECT'
   | 'BACKUP' | 'COMPILATION_LOG'
-  | 'CHECKPOINT' | 'RECALL' | 'SUMMARY_BUILDER' | 'STRUCTURED_SUMMARY';
+  | 'CHECKPOINT' | 'RECALL' | 'SUMMARY_BUILDER' | 'STRUCTURED_SUMMARY'
+  | 'DISCOVERY' | 'LEGACY';
 
 interface LogContext {
   sessionId?: number;
