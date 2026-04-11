@@ -77,9 +77,9 @@ export interface SettingsDefaults {
   // Audit / Review
   CLAUDE_MEM_AUDIT_REVIEW_INTERVAL_DAYS: string; // Days between memory review reminders
   // AI Compilation
-  AGENT_RECALL_COMPILATION_MODEL?: string;
-  AGENT_RECALL_AI_MERGE_ENABLED?: string;
-  AGENT_RECALL_MERMAID_ENABLED?: string;
+  AGENT_RECALL_COMPILATION_MODEL: string;
+  AGENT_RECALL_AI_MERGE_ENABLED: string;
+  AGENT_RECALL_MERMAID_ENABLED: string;
 }
 
 export class SettingsDefaultsManager {
