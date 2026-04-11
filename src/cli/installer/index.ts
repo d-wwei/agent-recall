@@ -30,7 +30,7 @@ import { formatBanner, formatFail, log } from './lib/output.js';
  * compiled to the corresponding .js path at build time.
  */
 const COMMANDS: Record<string, () => Promise<void>> = {
-  install:   () => import('./commands/install.js').then(m => m.run()),
+  install:   () => import('./commands/install.js').then(m => m.run()).then(() => {}),
   doctor:    () => import('./commands/doctor.js').then(m => m.run()),
   adapter:   () => import('./commands/adapter.js').then(m => m.run()),
   status:    () => import('./commands/status.js').then(m => m.run()),
