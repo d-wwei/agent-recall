@@ -34,6 +34,7 @@ export class PruneStage {
     };
 
     const now = new Date().toISOString();
+    let totalTokens = 0;
 
     for (const page of pages) {
       try {
@@ -54,6 +55,20 @@ export class PruneStage {
           this.markSuperseded(page.sourceObservationIds, ctx);
         }
 
+        // Handle AI-detected supersessions (after upsertPage call)
+        if (page.aiSuperseded && page.aiSuperseded.length > 0) {
+          for (const entry of page.aiSuperseded) {
+            try {
+              ctx.db.prepare(
+                `UPDATE observations SET superseded_by = ? WHERE id = ? AND superseded_by IS NULL`
+              ).run(entry.newId, entry.oldId);
+            } catch {
+              // Non-fatal — column may not exist in older schemas
+            }
+          }
+        }
+
+        totalTokens += page.tokensUsed ?? 0;
         result.observationsProcessed += page.sourceObservationIds.length;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -61,7 +76,10 @@ export class PruneStage {
       }
     }
 
-    return result;
+    return {
+      ...result,
+      tokensUsed: totalTokens > 0 ? totalTokens : undefined,
+    };
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
