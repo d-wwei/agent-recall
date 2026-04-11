@@ -419,6 +419,50 @@ export async function checkViewer(): Promise<CheckResult> {
   }
 }
 
+/**
+ * Check AI merge configuration status.
+ * Always returns ok=true; reports current configuration.
+ */
+export async function checkAIMerge(): Promise<CheckResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY || '';
+  const aiEnabled = process.env.AGENT_RECALL_AI_MERGE_ENABLED !== 'false';
+  const model = process.env.AGENT_RECALL_COMPILATION_MODEL || 'claude-opus-4-6';
+
+  if (!apiKey) {
+    return {
+      ok: true,
+      label: 'AI merge: not configured (using text merge)',
+      hint: 'Set ANTHROPIC_API_KEY to enable AI-powered knowledge compilation',
+      category: 'compilation',
+    };
+  }
+  if (!aiEnabled) {
+    return {
+      ok: true,
+      label: 'AI merge: disabled by setting',
+      category: 'compilation',
+    };
+  }
+  return {
+    ok: true,
+    label: `AI merge: active (${model})`,
+    category: 'compilation',
+  };
+}
+
+/**
+ * Check Mermaid diagram generation status.
+ * Always returns ok=true; reports current configuration.
+ */
+export async function checkMermaid(): Promise<CheckResult> {
+  const mermaidEnabled = process.env.AGENT_RECALL_MERMAID_ENABLED !== 'false';
+  return {
+    ok: true,
+    label: `Mermaid generation: ${mermaidEnabled ? 'enabled' : 'disabled'}`,
+    category: 'compilation',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Aggregate
 // ---------------------------------------------------------------------------
@@ -437,6 +481,8 @@ export async function runAllChecks(): Promise<CheckResult[]> {
     checkChromaFallback(),
     checkDiskSpace(),
     checkViewer(),
+    checkAIMerge(),
+    checkMermaid(),
   ]);
   return results;
 }

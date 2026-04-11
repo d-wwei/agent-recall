@@ -76,6 +76,10 @@ export interface SettingsDefaults {
   CLAUDE_MEM_AUTO_CLEANUP_ENABLED: string;      // 'true' | 'false' - opt-in automatic cleanup
   // Audit / Review
   CLAUDE_MEM_AUDIT_REVIEW_INTERVAL_DAYS: string; // Days between memory review reminders
+  // AI Compilation
+  AGENT_RECALL_COMPILATION_MODEL?: string;
+  AGENT_RECALL_AI_MERGE_ENABLED?: string;
+  AGENT_RECALL_MERMAID_ENABLED?: string;
 }
 
 export class SettingsDefaultsManager {
@@ -144,6 +148,10 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_AUTO_CLEANUP_ENABLED: 'false',    // Opt-in only
     // Audit / Review
     CLAUDE_MEM_AUDIT_REVIEW_INTERVAL_DAYS: '30', // Monthly review reminder
+    // AI Compilation
+    AGENT_RECALL_COMPILATION_MODEL: 'claude-opus-4-6',
+    AGENT_RECALL_AI_MERGE_ENABLED: 'true',
+    AGENT_RECALL_MERMAID_ENABLED: 'true',
   };
 
   /**
