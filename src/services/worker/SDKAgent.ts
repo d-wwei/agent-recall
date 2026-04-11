@@ -5,7 +5,7 @@
  * - Spawn Claude subprocess via Agent SDK
  * - Run event-driven query loop (no polling)
  * - Process SDK responses (observations, summaries)
- * - Sync to database and Chroma
+ * - Sync to database and vector store
  */
 
 import { execSync } from 'child_process';

@@ -10,7 +10,6 @@
  *   - Worker service health (HTTP probe on port 37777)
  *   - SQLite database existence and size
  *   - SeekDB vector store existence
- *   - Chroma fallback (info-only, always ok)
  *   - Disk space (df -k, require > 100 MB free)
  *   - Viewer UI availability (HTTP probe on port 37777)
  */
@@ -273,19 +272,6 @@ export async function checkSeekdb(): Promise<CheckResult> {
 }
 
 /**
- * Info-only check for the legacy Chroma backend.
- * Chroma is disabled by default; this always returns ok=true.
- */
-export async function checkChromaFallback(): Promise<CheckResult> {
-  return {
-    ok: true,
-    label: 'Chroma vector backend',
-    detail: 'disabled (using SeekDB by default)',
-    category: 'database',
-  };
-}
-
-/**
  * Verify there is at least 100 MB of free disk space in the home directory.
  * Uses `df -k ~/` on POSIX systems. Windows is not currently supported.
  */
@@ -478,7 +464,6 @@ export async function runAllChecks(): Promise<CheckResult[]> {
     checkWorkerRunning(),
     checkDatabase(),
     checkSeekdb(),
-    checkChromaFallback(),
     checkDiskSpace(),
     checkViewer(),
     checkAIMerge(),

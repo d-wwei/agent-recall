@@ -49,7 +49,7 @@ const CATEGORY_ORDER = ['runtime', 'worker', 'database', 'compilation', 'adapter
  * Never throws.
  */
 export async function runDoctor(): Promise<DoctorReport> {
-  // 1. Run all base runtime checks (Node, Bun, Worker, DB, SeekDB, Chroma, Disk, Viewer)
+  // 1. Run all base runtime checks (Node, Bun, Worker, DB, SeekDB, Disk, Viewer)
   const runtimeChecks = await runAllChecks();
 
   // 2. Add adapter checks: for each platform in PLATFORMS, check if detected and hooks registered.

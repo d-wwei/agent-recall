@@ -10,7 +10,7 @@ export interface ExplainedResult {
   matchScore: number;       // 0-1
   matchType: 'semantic' | 'keyword' | 'hybrid';
   matchedKeywords: string[];  // keywords from query found in result text
-  source: string;             // 'chroma' | 'fts5' | 'both'
+  source: string;             // 'vector' | 'fts5' | 'both'
 }
 
 export class SearchExplainer {
@@ -19,23 +19,23 @@ export class SearchExplainer {
    *
    * @param query       - The original search query string
    * @param result      - The search result document (any shape; title/narrative/facts are inspected)
-   * @param chromaScore - Score from Chroma vector search (0-1), if available
+   * @param vectorScore - Score from vector search (0-1), if available
    * @param ftsScore    - Score from SQLite FTS5, if available (treat as 0-1; higher = better)
    */
   explain(
     query: string,
     result: any,
-    chromaScore?: number,
+    vectorScore?: number,
     ftsScore?: number
   ): ExplainedResult {
-    const hasChrома = chromaScore !== undefined && chromaScore !== null;
+    const hasVector = vectorScore !== undefined && vectorScore !== null;
     const hasFts = ftsScore !== undefined && ftsScore !== null;
 
     // Determine match type
     let matchType: ExplainedResult['matchType'];
-    if (hasChrома && hasFts) {
+    if (hasVector && hasFts) {
       matchType = 'hybrid';
-    } else if (hasChrома) {
+    } else if (hasVector) {
       matchType = 'semantic';
     } else {
       matchType = 'keyword';
@@ -43,18 +43,18 @@ export class SearchExplainer {
 
     // Determine source label
     let source: string;
-    if (hasChrома && hasFts) {
+    if (hasVector && hasFts) {
       source = 'both';
-    } else if (hasChrома) {
-      source = 'chroma';
+    } else if (hasVector) {
+      source = 'vector';
     } else {
       source = 'fts5';
     }
 
     // matchScore: max of available scores
-    const effectiveChroma = hasChrома ? (chromaScore as number) : 0;
+    const effectiveVector = hasVector ? (vectorScore as number) : 0;
     const effectiveFts = hasFts ? (ftsScore as number) : 0;
-    const matchScore = Math.max(effectiveChroma, effectiveFts);
+    const matchScore = Math.max(effectiveVector, effectiveFts);
 
     // Extract keywords: split on whitespace, filter stopwords and short tokens
     const matchedKeywords = this.extractMatchedKeywords(query, result);

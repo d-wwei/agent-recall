@@ -1,13 +1,13 @@
 /**
- * FusionRanker - Adaptive fusion ranking for FTS5 + ChromaDB search results
+ * FusionRanker - Adaptive fusion ranking for FTS5 + vector search results
  *
- * Combines BM25 (FTS5) and vector-similarity (Chroma) scores using
+ * Combines BM25 (FTS5) and vector-similarity (SeekDB) scores using
  * query-type-aware weights, observation type weights, and staleness decay.
  */
 
 export interface FusionCandidate {
   id: number;
-  chromaScore: number;       // 0-1 similarity (1 = perfect match)
+  vectorScore: number;       // 0-1 vector similarity (1 = perfect match)
   ftsScore: number;          // 0-1 normalized BM25 rank
   type: string;              // observation type (decision/bugfix/feature/etc.)
   lastReferencedAt: string | null;
@@ -51,10 +51,10 @@ const DEFAULT_TYPE_WEIGHT = 0.5;
 /**
  * Blended weights per query type. Must sum to 1.0.
  */
-const QUERY_WEIGHTS: Record<QueryType, { chroma: number; fts5: number }> = {
-  exact:    { chroma: 0.3, fts5: 0.7 },
-  semantic: { chroma: 0.8, fts5: 0.2 },
-  balanced: { chroma: 0.55, fts5: 0.45 },
+const QUERY_WEIGHTS: Record<QueryType, { vector: number; fts5: number }> = {
+  exact:    { vector: 0.3, fts5: 0.7 },
+  semantic: { vector: 0.8, fts5: 0.2 },
+  balanced: { vector: 0.55, fts5: 0.45 },
 };
 
 // Regex patterns for query classification
@@ -83,9 +83,9 @@ const SEMANTIC_PATTERNS = [
  * A candidate appearing in both lists gets contributions from both.
  * Rank is 0-based (0 = best). Null rank means not present in that list.
  */
-export function computeRRFScore(chromaRank: number | null, ftsRank: number | null): number {
+export function computeRRFScore(vectorRank: number | null, ftsRank: number | null): number {
   let score = 0;
-  if (chromaRank !== null) score += 1 / (RRF_K + chromaRank + 1);
+  if (vectorRank !== null) score += 1 / (RRF_K + vectorRank + 1);
   if (ftsRank !== null) score += 1 / (RRF_K + ftsRank + 1);
   return score;
 }
@@ -95,7 +95,7 @@ export function computeRRFScore(chromaRank: number | null, ftsRank: number | nul
 export class FusionRanker {
   /**
    * Classify a query string into one of three query types that drive
-   * the chroma/fts5 weight split.
+   * the vector/fts5 weight split.
    */
   classifyQuery(query: string): QueryType {
     // Check exact patterns first (most specific)
@@ -116,9 +116,9 @@ export class FusionRanker {
   }
 
   /**
-   * Return the chroma/fts5 weight pair for the given query type.
+   * Return the vector/fts5 weight pair for the given query type.
    */
-  getWeights(queryType: QueryType): { chroma: number; fts5: number } {
+  getWeights(queryType: QueryType): { vector: number; fts5: number } {
     return QUERY_WEIGHTS[queryType];
   }
 
@@ -137,7 +137,7 @@ export class FusionRanker {
   /**
    * RRF-based ranking implementation.
    *
-   * 1. Sort candidates by chromaScore DESC → assign chroma ranks
+   * 1. Sort candidates by vectorScore DESC → assign vector ranks
    * 2. Sort candidates by ftsScore DESC → assign fts ranks
    * 3. Compute RRF score from both rank lists
    * 4. Apply typeWeight and decayFactor on top
@@ -149,13 +149,13 @@ export class FusionRanker {
     const now = Date.now();
 
     // Build rank maps — rank 0 = best in each list
-    const chromaRanks = new Map<number, number>();
+    const vectorRanks = new Map<number, number>();
     const ftsRanks = new Map<number, number>();
 
-    // Sort a copy by chromaScore DESC to assign chroma ranks
-    const byChroma = [...candidates].sort((a, b) => b.chromaScore - a.chromaScore);
-    for (let i = 0; i < byChroma.length; i++) {
-      chromaRanks.set(byChroma[i].id, i);
+    // Sort a copy by vectorScore DESC to assign vector ranks
+    const byVector = [...candidates].sort((a, b) => b.vectorScore - a.vectorScore);
+    for (let i = 0; i < byVector.length; i++) {
+      vectorRanks.set(byVector[i].id, i);
     }
 
     // Sort a copy by ftsScore DESC to assign fts ranks
@@ -165,10 +165,10 @@ export class FusionRanker {
     }
 
     const ranked: RankedResult[] = candidates.map((c) => {
-      const chromaRank = chromaRanks.get(c.id) ?? null;
+      const vectorRank = vectorRanks.get(c.id) ?? null;
       const ftsRank = ftsRanks.get(c.id) ?? null;
 
-      const rrfScore = computeRRFScore(chromaRank, ftsRank);
+      const rrfScore = computeRRFScore(vectorRank, ftsRank);
       const typeWeight = TYPE_WEIGHTS[c.type] ?? DEFAULT_TYPE_WEIGHT;
       const decayFactor = this._decayFactor(c, now);
 

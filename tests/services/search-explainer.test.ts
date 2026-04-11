@@ -6,7 +6,7 @@
  * - All tests exercise real logic on in-memory objects.
  *
  * Coverage:
- *  - Semantic-only (chromaScore only)
+ *  - Semantic-only (vectorScore only)
  *  - Keyword-only (ftsScore only)
  *  - Hybrid (both scores)
  *  - Keyword extraction from various result fields
@@ -35,7 +35,7 @@ function makeResult(overrides: Record<string, any> = {}): any {
 // ─────────────────────────────────────────────
 
 describe('SearchExplainer — matchType', () => {
-  it('returns semantic when only chromaScore is provided', () => {
+  it('returns semantic when only vectorScore is provided', () => {
     const result = explainer.explain('migration fix', makeResult(), 0.85);
     expect(result.matchType).toBe('semantic');
   });
@@ -45,7 +45,7 @@ describe('SearchExplainer — matchType', () => {
     expect(result.matchType).toBe('keyword');
   });
 
-  it('returns hybrid when both chromaScore and ftsScore are provided', () => {
+  it('returns hybrid when both vectorScore and ftsScore are provided', () => {
     const result = explainer.explain('migration fix', makeResult(), 0.85, 0.7);
     expect(result.matchType).toBe('hybrid');
   });
@@ -61,9 +61,9 @@ describe('SearchExplainer — matchType', () => {
 // ─────────────────────────────────────────────
 
 describe('SearchExplainer — source', () => {
-  it('sets source to chroma when only chromaScore is provided', () => {
+  it('sets source to vector when only vectorScore is provided', () => {
     const result = explainer.explain('query', makeResult(), 0.9);
-    expect(result.source).toBe('chroma');
+    expect(result.source).toBe('vector');
   });
 
   it('sets source to fts5 when only ftsScore is provided', () => {
@@ -82,7 +82,7 @@ describe('SearchExplainer — source', () => {
 // ─────────────────────────────────────────────
 
 describe('SearchExplainer — matchScore', () => {
-  it('uses chromaScore when it is the only score', () => {
+  it('uses vectorScore when it is the only score', () => {
     const result = explainer.explain('query', makeResult(), 0.75);
     expect(result.matchScore).toBe(0.75);
   });
@@ -92,12 +92,12 @@ describe('SearchExplainer — matchScore', () => {
     expect(result.matchScore).toBe(0.65);
   });
 
-  it('takes max of chromaScore and ftsScore in hybrid mode', () => {
+  it('takes max of vectorScore and ftsScore in hybrid mode', () => {
     const result = explainer.explain('query', makeResult(), 0.4, 0.9);
     expect(result.matchScore).toBe(0.9);
   });
 
-  it('takes max when chromaScore is higher', () => {
+  it('takes max when vectorScore is higher', () => {
     const result = explainer.explain('query', makeResult(), 0.95, 0.3);
     expect(result.matchScore).toBe(0.95);
   });

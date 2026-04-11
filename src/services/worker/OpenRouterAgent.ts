@@ -7,7 +7,7 @@
  * Responsibility:
  * - Call OpenRouter REST API for observation extraction
  * - Parse XML responses (same format as Claude/Gemini)
- * - Sync to database and Chroma
+ * - Sync to database and vector store
  * - Support dynamic model selection across providers
  */
 

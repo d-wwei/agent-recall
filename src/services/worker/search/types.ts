@@ -15,29 +15,29 @@ export const SEARCH_CONSTANTS = {
   RECENCY_WINDOW_DAYS: 90,
   RECENCY_WINDOW_MS: 90 * 24 * 60 * 60 * 1000,
   DEFAULT_LIMIT: 20,
-  CHROMA_BATCH_SIZE: 100
+  VECTOR_BATCH_SIZE: 100
 } as const;
 
 /**
- * Document types stored in Chroma
+ * Document types stored in vector DB
  */
-export type ChromaDocType = 'observation' | 'session_summary' | 'user_prompt';
+export type VectorDocType = 'observation' | 'session_summary' | 'user_prompt';
 
 /**
- * Chroma query result with typed metadata
+ * Vector query result with typed metadata
  */
-export interface ChromaQueryResult {
+export interface VectorQueryResult {
   ids: number[];
   distances: number[];
-  metadatas: ChromaMetadata[];
+  metadatas: VectorMetadata[];
 }
 
 /**
- * Metadata stored with each Chroma document
+ * Metadata stored with each vector document
  */
-export interface ChromaMetadata {
+export interface VectorMetadata {
   sqlite_id: number;
-  doc_type: ChromaDocType;
+  doc_type: VectorDocType;
   memory_session_id: string;
   project: string;
   created_at_epoch: number;
@@ -84,7 +84,7 @@ export interface ExtendedSearchOptions extends SearchOptions {
 /**
  * Search strategy selection hint
  */
-export type SearchStrategyHint = 'chroma' | 'sqlite' | 'hybrid' | 'auto';
+export type SearchStrategyHint = 'vector' | 'sqlite' | 'auto';
 
 /**
  * Options passed to search strategies
@@ -101,8 +101,8 @@ export interface StrategySearchOptions extends ExtendedSearchOptions {
  */
 export interface StrategySearchResult {
   results: SearchResults;
-  /** Whether Chroma was used successfully */
-  usedChroma: boolean;
+  /** Whether vector search was used successfully */
+  usedVector: boolean;
   /** Whether fallback was triggered */
   fellBack: boolean;
   /** Strategy that produced the results */

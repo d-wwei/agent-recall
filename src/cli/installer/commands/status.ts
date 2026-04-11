@@ -1,18 +1,16 @@
 /**
  * status.ts — Show runtime diagnostics for the agent-recall installation.
  *
- * Runs the four core runtime checks and prints their results:
+ * Runs the core runtime checks and prints their results:
  *   - Worker service health
  *   - SQLite database
  *   - SeekDB vector store
- *   - Chroma fallback (info-only)
  */
 
 import {
   checkWorkerRunning,
   checkDatabase,
   checkSeekdb,
-  checkChromaFallback,
   type CheckResult,
 } from '../lib/runtime-check.js';
 import { log, formatCheck, formatFail, formatHeader } from '../lib/output.js';
@@ -39,7 +37,6 @@ export async function run(): Promise<void> {
     checkWorkerRunning(),
     checkDatabase(),
     checkSeekdb(),
-    checkChromaFallback(),
   ]);
 
   for (const result of results) {

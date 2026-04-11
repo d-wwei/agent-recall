@@ -5,12 +5,11 @@
  * - Manage single database connection for worker lifetime
  * - Provide centralized access to SessionStore and SessionSearch
  * - High-level database operations
- * - ChromaSync integration
+ * - SeekDB vector search integration
  */
 
 import { SessionStore } from '../sqlite/SessionStore.js';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
-import { ChromaSync } from '../sync/ChromaSync.js';
 import { SeekdbSync } from '../sync/SeekdbSync.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
@@ -20,7 +19,6 @@ import type { DBSession } from '../worker-types.js';
 export class DatabaseManager {
   private sessionStore: SessionStore | null = null;
   private sessionSearch: SessionSearch | null = null;
-  private chromaSync: ChromaSync | null = null;
   private seekdbSync: SeekdbSync | null = null;
 
   /**
@@ -45,15 +43,6 @@ export class DatabaseManager {
         logger.error('DB', 'SeekdbSync initialization failed, falling back to SQLite-only', {}, error as Error);
         this.seekdbSync = null;
       }
-    } else if (vectorBackend === 'chroma') {
-      // Legacy ChromaSync via MCP (requires uv/uvx)
-      const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
-      if (chromaEnabled) {
-        this.chromaSync = new ChromaSync('agent-recall');
-        logger.info('DB', 'ChromaSync initialized (external MCP vector search)');
-      } else {
-        logger.info('DB', 'Chroma backend selected but CLAUDE_MEM_CHROMA_ENABLED=false, using SQLite-only search');
-      }
     } else {
       // vectorBackend === 'none' or unknown
       logger.info('DB', `Vector backend '${vectorBackend}' — using SQLite-only search`);
@@ -70,10 +59,6 @@ export class DatabaseManager {
     if (this.seekdbSync) {
       await this.seekdbSync.close();
       this.seekdbSync = null;
-    }
-    if (this.chromaSync) {
-      await this.chromaSync.close();
-      this.chromaSync = null;
     }
 
     if (this.sessionStore) {
@@ -105,13 +90,6 @@ export class DatabaseManager {
       throw new Error('Database not initialized');
     }
     return this.sessionSearch;
-  }
-
-  /**
-   * Get ChromaSync instance (returns null if Chroma is disabled or seekdb is active)
-   */
-  getChromaSync(): ChromaSync | null {
-    return this.chromaSync;
   }
 
   /**

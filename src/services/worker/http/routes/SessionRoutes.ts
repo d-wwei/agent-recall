@@ -339,7 +339,7 @@ export class SessionRoutes extends BaseRouteHandler {
 
     const session = this.sessionManager.initializeSession(sessionDbId, userPrompt, promptNumber);
 
-    // Get the latest user_prompt for this session to sync to Chroma
+    // Get the latest user_prompt for this session to broadcast
     const latestPrompt = this.dbManager.getSessionStore().getLatestUserPrompt(session.contentSessionId);
 
     // Broadcast new prompt to SSE clients (for web UI)
@@ -353,32 +353,7 @@ export class SessionRoutes extends BaseRouteHandler {
         created_at_epoch: latestPrompt.created_at_epoch
       });
 
-      // Sync user prompt to Chroma
-      const chromaStart = Date.now();
-      const promptText = latestPrompt.prompt_text;
-      this.dbManager.getChromaSync()?.syncUserPrompt(
-        latestPrompt.id,
-        latestPrompt.memory_session_id,
-        latestPrompt.project,
-        promptText,
-        latestPrompt.prompt_number,
-        latestPrompt.created_at_epoch
-      ).then(() => {
-        const chromaDuration = Date.now() - chromaStart;
-        const truncatedPrompt = promptText.length > 60
-          ? promptText.substring(0, 60) + '...'
-          : promptText;
-        logger.debug('CHROMA', 'User prompt synced', {
-          promptId: latestPrompt.id,
-          duration: `${chromaDuration}ms`,
-          prompt: truncatedPrompt
-        });
-      }).catch((error) => {
-        logger.error('CHROMA', 'User prompt sync failed, continuing without vector search', {
-          promptId: latestPrompt.id,
-          prompt: promptText.length > 60 ? promptText.substring(0, 60) + '...' : promptText
-        }, error);
-      });
+      // Vector sync is handled by SeekDB's AutoMemorySync (event-driven)
     }
 
     // Idempotent: ensure generator is running (matches handleObservations / handleSummarize)

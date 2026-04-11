@@ -7,7 +7,7 @@ const ranker = new FusionRanker();
 // Helper to build a candidate with sensible defaults
 function makeCandidate(overrides: Partial<FusionCandidate> & { id: number }): FusionCandidate {
   return {
-    chromaScore: 0.5,
+    vectorScore: 0.5,
     ftsScore: 0.5,
     type: 'change',
     lastReferencedAt: null,
@@ -86,24 +86,24 @@ describe('FusionRanker.classifyQuery — balanced (default)', () => {
 // ──────────────────────────────────────────────────────────
 
 describe('FusionRanker.getWeights', () => {
-  it('exact query favors FTS5 (fts5 > chroma)', () => {
+  it('exact query favors FTS5 (fts5 > vector)', () => {
     const w = ranker.getWeights('exact');
-    expect(w.fts5).toBeGreaterThan(w.chroma);
-    expect(w.chroma).toBe(0.3);
+    expect(w.fts5).toBeGreaterThan(w.vector);
+    expect(w.vector).toBe(0.3);
     expect(w.fts5).toBe(0.7);
   });
 
-  it('semantic query favors Chroma (chroma > fts5)', () => {
+  it('semantic query favors vector (vector > fts5)', () => {
     const w = ranker.getWeights('semantic');
-    expect(w.chroma).toBeGreaterThan(w.fts5);
-    expect(w.chroma).toBe(0.8);
+    expect(w.vector).toBeGreaterThan(w.fts5);
+    expect(w.vector).toBe(0.8);
     expect(w.fts5).toBe(0.2);
   });
 
   it('balanced query uses moderate weights summing to 1', () => {
     const w = ranker.getWeights('balanced');
-    expect(w.chroma + w.fts5).toBeCloseTo(1.0, 5);
-    expect(w.chroma).toBe(0.55);
+    expect(w.vector + w.fts5).toBeCloseTo(1.0, 5);
+    expect(w.vector).toBe(0.55);
     expect(w.fts5).toBe(0.45);
   });
 });
@@ -116,9 +116,9 @@ describe('FusionRanker.rank — basic ordering', () => {
   it('returns results sorted by finalScore descending', () => {
     const now = Date.now();
     const candidates: FusionCandidate[] = [
-      makeCandidate({ id: 1, chromaScore: 0.3, ftsScore: 0.3, type: 'change', createdAtEpoch: now - 10_000 }),
-      makeCandidate({ id: 2, chromaScore: 0.9, ftsScore: 0.9, type: 'change', createdAtEpoch: now - 10_000 }),
-      makeCandidate({ id: 3, chromaScore: 0.6, ftsScore: 0.6, type: 'change', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 1, vectorScore: 0.3, ftsScore: 0.3, type: 'change', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, vectorScore: 0.9, ftsScore: 0.9, type: 'change', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 3, vectorScore: 0.6, ftsScore: 0.6, type: 'change', createdAtEpoch: now - 10_000 }),
     ];
 
     const results = ranker.rank(candidates, 'balanced');
@@ -147,8 +147,8 @@ describe('FusionRanker.rank — type weighting', () => {
   it('decision outranks change with identical raw scores', () => {
     const now = Date.now();
     const candidates: FusionCandidate[] = [
-      makeCandidate({ id: 1, chromaScore: 0.7, ftsScore: 0.7, type: 'change',   createdAtEpoch: now - 10_000 }),
-      makeCandidate({ id: 2, chromaScore: 0.7, ftsScore: 0.7, type: 'decision', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 1, vectorScore: 0.7, ftsScore: 0.7, type: 'change',   createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, vectorScore: 0.7, ftsScore: 0.7, type: 'decision', createdAtEpoch: now - 10_000 }),
     ];
 
     const results = ranker.rank(candidates, 'balanced');
@@ -159,7 +159,7 @@ describe('FusionRanker.rank — type weighting', () => {
     const now = Date.now();
     const types = ['refactor', 'change', 'feature', 'bugfix', 'discovery', 'decision'];
     const candidates: FusionCandidate[] = types.map((type, i) =>
-      makeCandidate({ id: i + 1, chromaScore: 0.5, ftsScore: 0.5, type, createdAtEpoch: now - 10_000 })
+      makeCandidate({ id: i + 1, vectorScore: 0.5, ftsScore: 0.5, type, createdAtEpoch: now - 10_000 })
     );
 
     const results = ranker.rank(candidates, 'balanced');
@@ -170,8 +170,8 @@ describe('FusionRanker.rank — type weighting', () => {
   it('unknown type uses default weight (0.5, same as change)', () => {
     const now = Date.now();
     const candidates: FusionCandidate[] = [
-      makeCandidate({ id: 1, chromaScore: 0.5, ftsScore: 0.5, type: 'unknown_type', createdAtEpoch: now - 10_000 }),
-      makeCandidate({ id: 2, chromaScore: 0.5, ftsScore: 0.5, type: 'change',       createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 1, vectorScore: 0.5, ftsScore: 0.5, type: 'unknown_type', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, vectorScore: 0.5, ftsScore: 0.5, type: 'change',       createdAtEpoch: now - 10_000 }),
     ];
     const results = ranker.rank(candidates, 'balanced');
     // Both have the same type weight (0.5), so both should be present
@@ -193,7 +193,7 @@ describe('FusionRanker.rank — staleness decay', () => {
     // stale: high raw score (0.85) but 200 days old → decay reduces it below fresh
     const staleItem = makeCandidate({
       id: 1,
-      chromaScore: 0.85,
+      vectorScore: 0.85,
       ftsScore: 0.85,
       type: 'change',           // typeWeight = 0.5
       lastReferencedAt: null,
@@ -203,7 +203,7 @@ describe('FusionRanker.rank — staleness decay', () => {
     // fresh: lower raw score (0.7) but only 1 day old → decay barely applies
     const freshItem = makeCandidate({
       id: 2,
-      chromaScore: 0.7,
+      vectorScore: 0.7,
       ftsScore: 0.7,
       type: 'change',           // typeWeight = 0.5
       lastReferencedAt: new Date(now - 1 * msPerDay).toISOString(), // referenced yesterday
@@ -223,7 +223,7 @@ describe('FusionRanker.rank — staleness decay', () => {
 
     const veryOldItem = makeCandidate({
       id: 1,
-      chromaScore: 1.0,
+      vectorScore: 1.0,
       ftsScore: 1.0,
       type: 'change',
       lastReferencedAt: null,
@@ -244,7 +244,7 @@ describe('FusionRanker.rank — staleness decay', () => {
     // Old creation date, but recently referenced
     const recentlyReferenced = makeCandidate({
       id: 1,
-      chromaScore: 0.7,
+      vectorScore: 0.7,
       ftsScore: 0.7,
       type: 'decision',
       lastReferencedAt: new Date(now - 2 * msPerDay).toISOString(),
@@ -254,7 +254,7 @@ describe('FusionRanker.rank — staleness decay', () => {
     // Newer creation, never referenced
     const neverReferenced = makeCandidate({
       id: 2,
-      chromaScore: 0.7,
+      vectorScore: 0.7,
       ftsScore: 0.7,
       type: 'decision',
       lastReferencedAt: null,
@@ -282,7 +282,7 @@ describe('RRF constants and computeRRFScore', () => {
     expect(score).toBeCloseTo(2 / 61, 10);
   });
 
-  it('computeRRFScore returns correct value when only in one list (chroma)', () => {
+  it('computeRRFScore returns correct value when only in one list (vector)', () => {
     const score = computeRRFScore(0, null);
     expect(score).toBeCloseTo(1 / 61, 10);
   });
@@ -309,12 +309,12 @@ describe('FusionRanker.rank — RRF behavior', () => {
   it('item in both lists scores higher than item in only one list', () => {
     const now = Date.now();
     const candidates: FusionCandidate[] = [
-      makeCandidate({ id: 1, chromaScore: 0.9, ftsScore: 0.9, type: 'change', createdAtEpoch: now - 10_000 }),
-      makeCandidate({ id: 2, chromaScore: 0.8, ftsScore: 0.0, type: 'change', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 1, vectorScore: 0.9, ftsScore: 0.9, type: 'change', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, vectorScore: 0.8, ftsScore: 0.0, type: 'change', createdAtEpoch: now - 10_000 }),
     ];
 
     const results = ranker.rank(candidates, 'balanced');
-    // id=1 is rank 0 in both lists, id=2 is rank 1 in chroma, rank 0 in fts (ftsScore 0.0 is lowest)
+    // id=1 is rank 0 in both lists, id=2 is rank 1 in vector, rank 0 in fts (ftsScore 0.0 is lowest)
     // id=1 should still be higher because it ranks well in both lists
     expect(results[0].id).toBe(1);
     expect(results[0].finalScore).toBeGreaterThan(results[1].finalScore);
@@ -323,9 +323,9 @@ describe('FusionRanker.rank — RRF behavior', () => {
   it('rankRRF produces same results as rank (rank delegates to rankRRF)', () => {
     const now = Date.now();
     const candidates: FusionCandidate[] = [
-      makeCandidate({ id: 1, chromaScore: 0.3, ftsScore: 0.8, type: 'decision', createdAtEpoch: now - 10_000 }),
-      makeCandidate({ id: 2, chromaScore: 0.9, ftsScore: 0.2, type: 'bugfix', createdAtEpoch: now - 10_000 }),
-      makeCandidate({ id: 3, chromaScore: 0.5, ftsScore: 0.5, type: 'change', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 1, vectorScore: 0.3, ftsScore: 0.8, type: 'decision', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, vectorScore: 0.9, ftsScore: 0.2, type: 'bugfix', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 3, vectorScore: 0.5, ftsScore: 0.5, type: 'change', createdAtEpoch: now - 10_000 }),
     ];
 
     const rankResults = ranker.rank(candidates, 'balanced');
@@ -340,8 +340,8 @@ describe('FusionRanker.rank — RRF behavior', () => {
   it('RRF still respects type weights (decision outranks change at equal raw scores)', () => {
     const now = Date.now();
     const candidates: FusionCandidate[] = [
-      makeCandidate({ id: 1, chromaScore: 0.7, ftsScore: 0.7, type: 'change',   createdAtEpoch: now - 10_000 }),
-      makeCandidate({ id: 2, chromaScore: 0.7, ftsScore: 0.7, type: 'decision', createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 1, vectorScore: 0.7, ftsScore: 0.7, type: 'change',   createdAtEpoch: now - 10_000 }),
+      makeCandidate({ id: 2, vectorScore: 0.7, ftsScore: 0.7, type: 'decision', createdAtEpoch: now - 10_000 }),
     ];
 
     const results = ranker.rank(candidates, 'balanced');

@@ -6,9 +6,7 @@
  *
  * The actual search logic is now in:
  * - SearchOrchestrator: Strategy selection and coordination
- * - ChromaSearchStrategy: Vector-based semantic search
  * - SQLiteSearchStrategy: Filter-only queries
- * - HybridSearchStrategy: Metadata filtering + semantic ranking
  * - ResultFormatter: Output formatting
  * - TimelineBuilder: Timeline construction
  */
@@ -16,7 +14,6 @@
 import { basename } from 'path';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { SessionStore } from '../sqlite/SessionStore.js';
-import { ChromaSync } from '../sync/ChromaSync.js';
 import { SeekdbSync } from '../sync/SeekdbSync.js';
 import { FormattingService } from './FormattingService.js';
 import { TimelineService } from './TimelineService.js';
@@ -42,17 +39,12 @@ export class SearchManager {
   private timelineBuilder: TimelineBuilder;
   private fusionRanker: FusionRanker;
   private temporalParser = new TemporalParser();
-  /** Set to true after the first Chroma connection failure to avoid log spam */
-  private chromaFallbackWarned = false;
-  /** Tracks whether Chroma is known to be unreachable (set on first connection failure) */
-  private chromaIsDown = false;
-  /** SeekdbSync embedded vector backend (alternative to Chroma) */
+  /** SeekdbSync embedded vector backend */
   private seekdbSync: SeekdbSync | null;
 
   constructor(
     private sessionSearch: SessionSearch,
     private sessionStore: SessionStore,
-    private chromaSync: ChromaSync | null,
     private formatter: FormattingService,
     private timelineService: TimelineService,
     seekdbSync?: SeekdbSync | null
@@ -61,8 +53,7 @@ export class SearchManager {
     // Initialize the new modular search infrastructure
     this.orchestrator = new SearchOrchestrator(
       sessionSearch,
-      sessionStore,
-      chromaSync
+      sessionStore
     );
     this.timelineBuilder = new TimelineBuilder();
     this.fusionRanker = new FusionRanker();
@@ -70,51 +61,25 @@ export class SearchManager {
 
   /** Returns true if any vector search backend is available */
   private get hasVectorSearch(): boolean {
-    return !!(this.chromaSync || this.seekdbSync);
+    return !!this.seekdbSync;
   }
 
   /**
-   * Query vector database (seekdb or ChromaSync).
-   * Tries seekdb first (embedded), then falls back to ChromaSync (external MCP).
-   * Gracefully returns empty results when neither is available.
-   * Logs a warning once per session to avoid log spam.
+   * Query vector database (SeekDB).
+   * Gracefully returns empty results when not available.
    */
   private async queryVector(
     query: string,
     limit: number,
     whereFilter?: Record<string, any>
   ): Promise<{ ids: number[]; distances: number[]; metadatas: any[] }> {
-    // Try seekdb first (embedded, always available when configured)
     if (this.seekdbSync) {
       try {
         return await this.seekdbSync.query(query, limit, whereFilter);
       } catch (error) {
-        logger.warn('SEARCH', 'SeekdbSync query failed, trying fallback', {
+        logger.warn('SEARCH', 'SeekdbSync query failed', {
           error: error instanceof Error ? error.message : String(error),
         });
-        // Fall through to Chroma if available
-      }
-    }
-
-    // Try ChromaSync (external MCP)
-    if (this.chromaSync) {
-      try {
-        const result = await this.chromaSync.queryChroma(query, limit, whereFilter);
-        if (this.chromaIsDown) {
-          this.chromaIsDown = false;
-          logger.info('SEARCH', 'Chroma connection restored');
-        }
-        return result;
-      } catch (error) {
-        this.chromaIsDown = true;
-        if (!this.chromaFallbackWarned) {
-          this.chromaFallbackWarned = true;
-          logger.warn('SEARCH', 'Chroma unavailable, falling back to SQLite/FTS5 search. '
-            + 'Set AGENT_RECALL_VECTOR_BACKEND=seekdb to use embedded vector search, '
-            + 'or AGENT_RECALL_VECTOR_BACKEND=none for SQLite-only mode.', {
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
       }
     }
 
@@ -122,50 +87,39 @@ export class SearchManager {
   }
 
   /**
-   * @deprecated Use queryVector() instead — kept for backward compatibility
-   */
-  private async queryChroma(
-    query: string,
-    limit: number,
-    whereFilter?: Record<string, any>
-  ): Promise<{ ids: number[]; distances: number[]; metadatas: any[] }> {
-    return this.queryVector(query, limit, whereFilter);
-  }
-
-  /**
-   * Apply fusion ranking to observation results from ChromaDB.
-   * Uses FusionRanker to reorder observations by combining Chroma similarity scores
+   * Apply fusion ranking to observation results from vector search.
+   * Uses FusionRanker to reorder observations by combining vector similarity scores
    * with observation type weights and staleness decay.
    *
    * @param observations - Hydrated observation results from SQLite
-   * @param chromaDistanceMap - Map of observation ID → Chroma distance
+   * @param vectorDistanceMap - Map of observation ID → vector distance
    * @param query - The search query text (used for query type classification)
    * @returns Observations reordered by fusion score
    */
   private applyFusionRanking(
     observations: ObservationSearchResult[],
-    chromaDistanceMap: Map<number, number>,
+    vectorDistanceMap: Map<number, number>,
     query: string
   ): ObservationSearchResult[] {
     if (observations.length === 0) return observations;
 
-    // Classify the query to determine chroma/fts5 weight split
+    // Classify the query to determine vector/fts5 weight split
     const queryType = this.fusionRanker.classifyQuery(query);
 
     // Compute max distance for normalization (avoid division by zero)
-    const distances = Array.from(chromaDistanceMap.values());
+    const distances = Array.from(vectorDistanceMap.values());
     const maxDistance = Math.max(...distances, 0.001);
 
     // Build FusionCandidate objects for each observation
     const candidates: FusionCandidate[] = observations.map(obs => {
-      const chromaDistance = chromaDistanceMap.get(obs.id) ?? maxDistance;
+      const vectorDistance = vectorDistanceMap.get(obs.id) ?? maxDistance;
       // Normalize: distance → similarity (1 = perfect match, 0 = worst)
-      const chromaScore = 1 - chromaDistance / maxDistance;
+      const vectorScore = 1 - vectorDistance / maxDistance;
 
       return {
         id: obs.id,
-        chromaScore,
-        ftsScore: 0, // FTS5 text search not active; Chroma-only path
+        vectorScore,
+        ftsScore: 0, // FTS5 text search not active; vector-only path
         type: obs.type,
         lastReferencedAt: obs.last_referenced_at ?? null,
         createdAtEpoch: obs.created_at_epoch,
@@ -205,18 +159,18 @@ export class SearchManager {
   }
 
   /**
-   * Build a Map of observation ID → Chroma distance from raw Chroma results.
+   * Build a Map of observation ID → vector distance from raw vector search results.
    * Used to provide distance scores for fusion ranking after SQLite hydration.
    */
-  private buildChromaDistanceMap(
-    chromaIds: number[],
-    chromaDistances: number[]
+  private buildVectorDistanceMap(
+    vectorIds: number[],
+    vectorDistances: number[]
   ): Map<number, number> {
     const map = new Map<number, number>();
-    for (let i = 0; i < chromaIds.length; i++) {
-      // Keep first (best) distance per ID; queryChroma already deduplicates
-      if (!map.has(chromaIds[i])) {
-        map.set(chromaIds[i], chromaDistances[i]);
+    for (let i = 0; i < vectorIds.length; i++) {
+      // Keep first (best) distance per ID; queryVector already deduplicates
+      if (!map.has(vectorIds[i])) {
+        map.set(vectorIds[i], vectorDistances[i]);
       }
     }
     return map;
@@ -309,8 +263,7 @@ export class SearchManager {
       }
     }
 
-    // PATH 1: FILTER-ONLY (no query text) - Skip Chroma/FTS5, use direct SQLite filtering
-    // This path enables date filtering which Chroma cannot do (requires direct SQLite access)
+    // PATH 1: FILTER-ONLY (no query text) - Skip vector/FTS5, use direct SQLite filtering
     if (!query) {
       logger.debug('SEARCH', 'Filter-only query (no query text), using direct SQLite filtering', { enablesDateFilters: true });
       const obsOptions = { ...options, type: obs_type, concepts, files };
@@ -324,11 +277,11 @@ export class SearchManager {
         prompts = this.sessionSearch.searchUserPrompts(undefined, options);
       }
     }
-    // PATH 2: CHROMA SEMANTIC SEARCH (query text + Chroma available and reachable)
-    else if (this.hasVectorSearch && !this.chromaIsDown) {
+    // PATH 2: VECTOR SEMANTIC SEARCH (query text + SeekDB available)
+    else if (this.hasVectorSearch) {
       logger.debug('SEARCH', 'Using vector semantic search', { typeFilter: type || 'all' });
 
-      // Build Chroma where filter for doc_type and project
+      // Build where filter for doc_type and project
       let whereFilter: Record<string, any> | undefined;
       if (type === 'observations') {
         whereFilter = { doc_type: 'observation' };
@@ -338,9 +291,7 @@ export class SearchManager {
         whereFilter = { doc_type: 'user_prompt' };
       }
 
-      // Include project in the Chroma where clause to scope vector search.
-      // Without this, larger projects dominate the top-N results and smaller
-      // projects get crowded out before the post-hoc SQLite filter.
+      // Include project in the where clause to scope vector search.
       if (options.project) {
         const projectFilter = { project: options.project };
         whereFilter = whereFilter
@@ -348,12 +299,11 @@ export class SearchManager {
           : projectFilter;
       }
 
-      // Step 1: Chroma semantic search with optional type + project filter
-      const chromaResults = await this.queryChroma(query, 100, whereFilter);
-      const chromaActuallyWorked = !this.chromaIsDown;
-      logger.debug('SEARCH', 'ChromaDB returned semantic matches', { matchCount: chromaResults.ids.length, chromaWorking: chromaActuallyWorked });
+      // Step 1: Vector semantic search with optional type + project filter
+      const vectorResults = await this.queryVector(query, 100, whereFilter);
+      logger.debug('SEARCH', 'Vector search returned semantic matches', { matchCount: vectorResults.ids.length });
 
-      if (chromaResults.ids.length > 0) {
+      if (vectorResults.ids.length > 0) {
         // Step 2: Filter by date range
         // Use user-provided dateRange if available, otherwise fall back to 90-day recency window
         const { dateRange } = options;
@@ -376,8 +326,8 @@ export class SearchManager {
           startEpoch = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
         }
 
-        const recentMetadata = chromaResults.metadatas.map((meta, idx) => ({
-          id: chromaResults.ids[idx],
+        const recentMetadata = vectorResults.metadatas.map((meta, idx) => ({
+          id: vectorResults.ids[idx],
           meta,
           isRecent: meta && meta.created_at_epoch != null
             && (!startEpoch || meta.created_at_epoch >= startEpoch)
@@ -420,9 +370,9 @@ export class SearchManager {
         logger.debug('SEARCH', 'Hydrated results from SQLite', { observations: observations.length, sessions: sessions.length, prompts: prompts.length });
 
         // Step 5: Apply fusion ranking to reorder observations
-        // Uses Chroma similarity scores + type weights + staleness decay
+        // Uses vector similarity scores + type weights + staleness decay
         if (observations.length > 1) {
-          const distanceMap = this.buildChromaDistanceMap(chromaResults.ids, chromaResults.distances);
+          const distanceMap = this.buildVectorDistanceMap(vectorResults.ids, vectorResults.distances);
           observations = this.applyFusionRanking(observations, distanceMap, query);
 
           // Step 5b: Apply temporal boost if a temporal expression was parsed.
@@ -438,28 +388,12 @@ export class SearchManager {
             });
           }
         }
-      } else if (chromaActuallyWorked) {
-        // Chroma returned 0 results and was genuinely working - this is the correct answer
-        logger.debug('SEARCH', 'ChromaDB found no matches (final result, no FTS5 fallback)', {});
-      } else {
-        // Chroma is down (queryChroma returned empty due to connection failure)
-        // Fall back to FTS5 search
-        logger.debug('SEARCH', 'Chroma unavailable, falling back to FTS5 search', {});
-        const obsOptions = { ...options, type: obs_type, concepts, files };
-        if (searchObservations) {
-          observations = this.sessionSearch.searchObservations(query, obsOptions);
-        }
-        if (searchSessions) {
-          sessions = this.sessionSearch.searchSessions(query, options);
-        }
-        if (searchPrompts) {
-          prompts = this.sessionSearch.searchUserPrompts(query, options);
-        }
       }
+      // Vector returned 0 results — this is the correct answer, no FTS5 fallback needed
     }
-    // ChromaDB not available (disabled or not initialized) - fall back to FTS5 search
+    // No vector search available - fall back to FTS5 search
     else if (query) {
-      logger.debug('SEARCH', 'ChromaDB not available, using FTS5 search', {});
+      logger.debug('SEARCH', 'Vector search not available, using FTS5 search', {});
       const obsOptions = { ...options, type: obs_type, concepts, files };
       if (searchObservations) {
         observations = this.sessionSearch.searchObservations(query, obsOptions);
@@ -632,14 +566,14 @@ export class SearchManager {
 
       if (this.hasVectorSearch) {
         try {
-          logger.debug('SEARCH', 'Using hybrid semantic search for timeline query', {});
-          const chromaResults = await this.queryVector(query, 100);
-          logger.debug('SEARCH', 'Vector search returned semantic matches for timeline', { matchCount: chromaResults?.ids?.length ?? 0 });
+          logger.debug('SEARCH', 'Using vector semantic search for timeline query', {});
+          const vectorResults = await this.queryVector(query, 100);
+          logger.debug('SEARCH', 'Vector search returned semantic matches for timeline', { matchCount: vectorResults?.ids?.length ?? 0 });
 
-          if (chromaResults?.ids && chromaResults.ids.length > 0) {
+          if (vectorResults?.ids && vectorResults.ids.length > 0) {
             const ninetyDaysAgo = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
-            const recentIds = chromaResults.ids.filter((_id, idx) => {
-              const meta = chromaResults.metadatas[idx];
+            const recentIds = vectorResults.ids.filter((_id, idx) => {
+              const meta = vectorResults.metadatas[idx];
               return meta && meta.created_at_epoch > ninetyDaysAgo;
             });
 
@@ -647,8 +581,8 @@ export class SearchManager {
               results = this.sessionStore.getObservationsByIds(recentIds, { orderBy: 'date_desc', limit: 1 });
             }
           }
-        } catch (chromaError) {
-          logger.error('SEARCH', 'Chroma search failed for timeline, continuing without semantic results', {}, chromaError as Error);
+        } catch (vectorError) {
+          logger.error('SEARCH', 'Vector search failed for timeline, continuing without semantic results', {}, vectorError as Error);
         }
       }
 
@@ -885,12 +819,12 @@ export class SearchManager {
         if (query) {
           // Semantic search filtered to decision type
           logger.debug('SEARCH', 'Using vector semantic search with type=decision filter', {});
-          const chromaResults = await this.queryVector(query, Math.min((filters.limit || 20) * 2, 100), { type: 'decision' });
-          const obsIds = chromaResults.ids;
+          const vectorResults = await this.queryVector(query, Math.min((filters.limit || 20) * 2, 100), { type: 'decision' });
+          const obsIds = vectorResults.ids;
 
           if (obsIds.length > 0) {
             results = this.sessionStore.getObservationsByIds(obsIds, { ...filters, type: 'decision' });
-            // Preserve Chroma ranking order
+            // Preserve vector ranking order
             results.sort((a, b) => obsIds.indexOf(a.id) - obsIds.indexOf(b.id));
           }
         } else {
@@ -900,12 +834,12 @@ export class SearchManager {
 
           if (metadataResults.length > 0) {
             const ids = metadataResults.map(obs => obs.id);
-            const chromaResults = await this.queryChroma('decision', Math.min(ids.length, 100));
+            const vectorResults = await this.queryVector('decision', Math.min(ids.length, 100));
 
             const rankedIds: number[] = [];
-            for (const chromaId of chromaResults.ids) {
-              if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-                rankedIds.push(chromaId);
+            for (const vecId of vectorResults.ids) {
+              if (ids.includes(vecId) && !rankedIds.includes(vecId)) {
+                rankedIds.push(vecId);
               }
             }
 
@@ -915,8 +849,8 @@ export class SearchManager {
             }
           }
         }
-      } catch (chromaError) {
-        logger.error('SEARCH', 'Chroma search failed for decisions, falling back to metadata search', {}, chromaError as Error);
+      } catch (vectorError) {
+        logger.error('SEARCH', 'Vector search failed for decisions, falling back to metadata search', {}, vectorError as Error);
       }
     }
 
@@ -969,12 +903,12 @@ export class SearchManager {
 
         if (allIds.size > 0) {
           const idsArray = Array.from(allIds);
-          const chromaResults = await this.queryChroma('what changed', Math.min(idsArray.length, 100));
+          const vectorResults = await this.queryVector('what changed', Math.min(idsArray.length, 100));
 
           const rankedIds: number[] = [];
-          for (const chromaId of chromaResults.ids) {
-            if (idsArray.includes(chromaId) && !rankedIds.includes(chromaId)) {
-              rankedIds.push(chromaId);
+          for (const vecId of vectorResults.ids) {
+            if (idsArray.includes(vecId) && !rankedIds.includes(vecId)) {
+              rankedIds.push(vecId);
             }
           }
 
@@ -983,8 +917,8 @@ export class SearchManager {
             results.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id));
           }
         }
-      } catch (chromaError) {
-        logger.error('SEARCH', 'Chroma search failed for changes, falling back to metadata search', {}, chromaError as Error);
+      } catch (vectorError) {
+        logger.error('SEARCH', 'Vector search failed for changes, falling back to metadata search', {}, vectorError as Error);
       }
     }
 
@@ -1043,12 +977,12 @@ export class SearchManager {
 
       if (metadataResults.length > 0) {
         const ids = metadataResults.map(obs => obs.id);
-        const chromaResults = await this.queryChroma('how it works architecture', Math.min(ids.length, 100));
+        const vectorResults = await this.queryVector('how it works architecture', Math.min(ids.length, 100));
 
         const rankedIds: number[] = [];
-        for (const chromaId of chromaResults.ids) {
-          if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-            rankedIds.push(chromaId);
+        for (const vecId of vectorResults.ids) {
+          if (ids.includes(vecId) && !rankedIds.includes(vecId)) {
+            rankedIds.push(vecId);
           }
         }
 
@@ -1094,18 +1028,18 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Vector-first search via vector backend
-    if (this.hasVectorSearch && !this.chromaIsDown) {
+    if (this.hasVectorSearch) {
       logger.debug('SEARCH', 'Using hybrid semantic search (vector + SQLite)', {});
 
       // Step 1: Vector semantic search (top 100)
-      const chromaResults = await this.queryVector(query, 100);
-      logger.debug('SEARCH', 'Chroma returned semantic matches', { matchCount: chromaResults.ids.length });
+      const vectorResults = await this.queryVector(query, 100);
+      logger.debug('SEARCH', 'Vector search returned semantic matches', { matchCount: vectorResults.ids.length });
 
-      if (chromaResults.ids.length > 0) {
+      if (vectorResults.ids.length > 0) {
         // Step 2: Filter by recency (90 days)
         const ninetyDaysAgo = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
-        const recentIds = chromaResults.ids.filter((_id, idx) => {
-          const meta = chromaResults.metadatas[idx];
+        const recentIds = vectorResults.ids.filter((_id, idx) => {
+          const meta = vectorResults.metadatas[idx];
           return meta && meta.created_at_epoch > ninetyDaysAgo;
         });
 
@@ -1119,14 +1053,14 @@ export class SearchManager {
 
           // Step 4: Apply fusion ranking (type weights + staleness decay)
           if (results.length > 1) {
-            const distanceMap = this.buildChromaDistanceMap(chromaResults.ids, chromaResults.distances);
+            const distanceMap = this.buildVectorDistanceMap(vectorResults.ids, vectorResults.distances);
             results = this.applyFusionRanking(results, distanceMap, query);
           }
         }
       }
     }
 
-    // Fall back to FTS5 if Chroma unavailable or returned no results
+    // Fall back to FTS5 if vector search unavailable or returned no results
     if (results.length === 0 && query) {
       results = this.sessionSearch.searchObservations(query, options);
     }
@@ -1161,7 +1095,7 @@ export class SearchManager {
     const { query, ...options } = normalized;
     let results: SessionSummarySearchResult[] = [];
 
-    // Fallback to SQLite when no query provided (Chroma requires non-empty query_texts)
+    // Fallback to SQLite when no query provided (vector search requires non-empty query)
     if (!query) {
       const limit = options.limit || 20;
       results = this.sessionSearch.searchSessions(undefined, { ...options, limit });
@@ -1174,18 +1108,18 @@ export class SearchManager {
     }
 
     // Vector-first search via vector backend
-    if (this.hasVectorSearch && !this.chromaIsDown) {
+    if (this.hasVectorSearch) {
       logger.debug('SEARCH', 'Using hybrid semantic search for sessions', {});
 
       // Step 1: Vector semantic search (top 100)
-      const chromaResults = await this.queryVector(query, 100, { doc_type: 'session_summary' });
-      logger.debug('SEARCH', 'Chroma returned semantic matches for sessions', { matchCount: chromaResults.ids.length });
+      const vectorResults = await this.queryVector(query, 100, { doc_type: 'session_summary' });
+      logger.debug('SEARCH', 'Vector search returned semantic matches for sessions', { matchCount: vectorResults.ids.length });
 
-      if (chromaResults.ids.length > 0) {
+      if (vectorResults.ids.length > 0) {
         // Step 2: Filter by recency (90 days)
         const ninetyDaysAgo = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
-        const recentIds = chromaResults.ids.filter((_id, idx) => {
-          const meta = chromaResults.metadatas[idx];
+        const recentIds = vectorResults.ids.filter((_id, idx) => {
+          const meta = vectorResults.metadatas[idx];
           return meta && meta.created_at_epoch > ninetyDaysAgo;
         });
 
@@ -1200,7 +1134,7 @@ export class SearchManager {
       }
     }
 
-    // Fall back to FTS5 if Chroma unavailable or returned no results
+    // Fall back to FTS5 if vector search unavailable or returned no results
     if (results.length === 0 && query) {
       results = this.sessionSearch.searchSessions(query, options);
     }
@@ -1236,18 +1170,18 @@ export class SearchManager {
     let results: UserPromptSearchResult[] = [];
 
     // Vector-first search via vector backend
-    if (this.hasVectorSearch && !this.chromaIsDown) {
+    if (this.hasVectorSearch) {
       logger.debug('SEARCH', 'Using hybrid semantic search for user prompts', {});
 
       // Step 1: Vector semantic search (top 100)
-      const chromaResults = await this.queryVector(query, 100, { doc_type: 'user_prompt' });
-      logger.debug('SEARCH', 'Chroma returned semantic matches for prompts', { matchCount: chromaResults.ids.length });
+      const vectorResults = await this.queryVector(query, 100, { doc_type: 'user_prompt' });
+      logger.debug('SEARCH', 'Vector search returned semantic matches for prompts', { matchCount: vectorResults.ids.length });
 
-      if (chromaResults.ids.length > 0) {
+      if (vectorResults.ids.length > 0) {
         // Step 2: Filter by recency (90 days)
         const ninetyDaysAgo = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
-        const recentIds = chromaResults.ids.filter((_id, idx) => {
-          const meta = chromaResults.metadatas[idx];
+        const recentIds = vectorResults.ids.filter((_id, idx) => {
+          const meta = vectorResults.metadatas[idx];
           return meta && meta.created_at_epoch > ninetyDaysAgo;
         });
 
@@ -1262,7 +1196,7 @@ export class SearchManager {
       }
     }
 
-    // Fall back to FTS5 if Chroma unavailable or returned no results
+    // Fall back to FTS5 if vector search unavailable or returned no results
     if (results.length === 0 && query) {
       results = this.sessionSearch.searchUserPrompts(query, options);
     }
@@ -1306,19 +1240,19 @@ export class SearchManager {
       logger.debug('SEARCH', 'Found observations with concept', { concept, count: metadataResults.length });
 
       if (metadataResults.length > 0) {
-        // Step 2: Chroma semantic ranking (rank by relevance to concept)
+        // Step 2: Vector semantic ranking (rank by relevance to concept)
         const ids = metadataResults.map(obs => obs.id);
-        const chromaResults = await this.queryChroma(concept, Math.min(ids.length, 100));
+        const vectorResults = await this.queryVector(concept, Math.min(ids.length, 100));
 
         // Intersect: Keep only IDs that passed metadata filter, in semantic rank order
         const rankedIds: number[] = [];
-        for (const chromaId of chromaResults.ids) {
-          if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-            rankedIds.push(chromaId);
+        for (const vecId of vectorResults.ids) {
+          if (ids.includes(vecId) && !rankedIds.includes(vecId)) {
+            rankedIds.push(vecId);
           }
         }
 
-        logger.debug('SEARCH', 'Chroma ranked results by semantic relevance', { count: rankedIds.length });
+        logger.debug('SEARCH', 'Vector ranked results by semantic relevance', { count: rankedIds.length });
 
         // Step 3: Hydrate in semantic rank order
         if (rankedIds.length > 0) {
@@ -1329,7 +1263,7 @@ export class SearchManager {
       }
     }
 
-    // Fall back to SQLite-only if Chroma unavailable or failed
+    // Fall back to SQLite-only if vector search unavailable or failed
     if (results.length === 0) {
       logger.debug('SEARCH', 'Using SQLite-only concept search', {});
       results = this.sessionSearch.findByConcept(concept, filters);
@@ -1381,19 +1315,19 @@ export class SearchManager {
 
       // Observations: Apply semantic ranking
       if (metadataResults.observations.length > 0) {
-        // Step 2: Chroma semantic ranking (rank by relevance to file path)
+        // Step 2: Vector semantic ranking (rank by relevance to file path)
         const ids = metadataResults.observations.map(obs => obs.id);
-        const chromaResults = await this.queryChroma(filePath, Math.min(ids.length, 100));
+        const vectorResults = await this.queryVector(filePath, Math.min(ids.length, 100));
 
         // Intersect: Keep only IDs that passed metadata filter, in semantic rank order
         const rankedIds: number[] = [];
-        for (const chromaId of chromaResults.ids) {
-          if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-            rankedIds.push(chromaId);
+        for (const vecId of vectorResults.ids) {
+          if (ids.includes(vecId) && !rankedIds.includes(vecId)) {
+            rankedIds.push(vecId);
           }
         }
 
-        logger.debug('SEARCH', 'Chroma ranked observations by semantic relevance', { count: rankedIds.length });
+        logger.debug('SEARCH', 'Vector ranked observations by semantic relevance', { count: rankedIds.length });
 
         // Step 3: Hydrate in semantic rank order
         if (rankedIds.length > 0) {
@@ -1404,7 +1338,7 @@ export class SearchManager {
       }
     }
 
-    // Fall back to SQLite-only if Chroma unavailable or failed
+    // Fall back to SQLite-only if vector search unavailable or failed
     if (observations.length === 0 && sessions.length === 0) {
       logger.debug('SEARCH', 'Using SQLite-only file search', {});
       const results = this.sessionSearch.findByFile(filePath, filters);
@@ -1497,19 +1431,19 @@ export class SearchManager {
       logger.debug('SEARCH', 'Found observations with type', { type: typeStr, count: metadataResults.length });
 
       if (metadataResults.length > 0) {
-        // Step 2: Chroma semantic ranking (rank by relevance to type)
+        // Step 2: Vector semantic ranking (rank by relevance to type)
         const ids = metadataResults.map(obs => obs.id);
-        const chromaResults = await this.queryChroma(typeStr, Math.min(ids.length, 100));
+        const vectorResults = await this.queryVector(typeStr, Math.min(ids.length, 100));
 
         // Intersect: Keep only IDs that passed metadata filter, in semantic rank order
         const rankedIds: number[] = [];
-        for (const chromaId of chromaResults.ids) {
-          if (ids.includes(chromaId) && !rankedIds.includes(chromaId)) {
-            rankedIds.push(chromaId);
+        for (const vecId of vectorResults.ids) {
+          if (ids.includes(vecId) && !rankedIds.includes(vecId)) {
+            rankedIds.push(vecId);
           }
         }
 
-        logger.debug('SEARCH', 'Chroma ranked results by semantic relevance', { count: rankedIds.length });
+        logger.debug('SEARCH', 'Vector ranked results by semantic relevance', { count: rankedIds.length });
 
         // Step 3: Hydrate in semantic rank order
         if (rankedIds.length > 0) {
@@ -1520,7 +1454,7 @@ export class SearchManager {
       }
     }
 
-    // Fall back to SQLite-only if Chroma unavailable or failed
+    // Fall back to SQLite-only if vector search unavailable or failed
     if (results.length === 0) {
       logger.debug('SEARCH', 'Using SQLite-only type search', {});
       results = this.sessionSearch.findByType(type, filters);
@@ -1899,14 +1833,14 @@ export class SearchManager {
     // Use hybrid search if available
     if (this.hasVectorSearch) {
       logger.debug('SEARCH', 'Using hybrid semantic search for timeline query', {});
-      const chromaResults = await this.queryVector(query, 100);
-      logger.debug('SEARCH', 'Vector search returned semantic matches for timeline', { matchCount: chromaResults.ids.length });
+      const vectorResults = await this.queryVector(query, 100);
+      logger.debug('SEARCH', 'Vector search returned semantic matches for timeline', { matchCount: vectorResults.ids.length });
 
-      if (chromaResults.ids.length > 0) {
+      if (vectorResults.ids.length > 0) {
         // Filter by recency (90 days)
         const ninetyDaysAgo = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
-        const recentIds = chromaResults.ids.filter((_id, idx) => {
-          const meta = chromaResults.metadatas[idx];
+        const recentIds = vectorResults.ids.filter((_id, idx) => {
+          const meta = vectorResults.metadatas[idx];
           return meta && meta.created_at_epoch > ninetyDaysAgo;
         });
 

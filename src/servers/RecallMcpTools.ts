@@ -22,7 +22,7 @@ export function createRecallTools(workerBaseUrl: string): McpToolDefinition[] {
   return [
     {
       name: 'recall_search',
-      description: 'Search Agent Recall memory (FTS5 + ChromaDB fusion)',
+      description: 'Search Agent Recall memory (FTS5 + SeekDB vector fusion)',
       inputSchema: {
         type: 'object',
         properties: {

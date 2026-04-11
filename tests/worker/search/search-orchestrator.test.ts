@@ -95,7 +95,6 @@ describe('SearchOrchestrator', () => {
   let orchestrator: SearchOrchestrator;
   let mockSessionSearch: any;
   let mockSessionStore: any;
-  let mockChromaSync: any;
 
   beforeEach(() => {
     mockSessionSearch = {
@@ -113,260 +112,163 @@ describe('SearchOrchestrator', () => {
       getUserPromptsByIds: mock(() => [mockPrompt])
     };
 
-    mockChromaSync = {
-      queryChroma: mock(() => Promise.resolve({
-        ids: [1],
-        distances: [0.1],
-        metadatas: [{ sqlite_id: 1, doc_type: 'observation', created_at_epoch: Date.now() - 1000 }]
-      }))
-    };
+    orchestrator = new SearchOrchestrator(mockSessionSearch, mockSessionStore);
   });
 
-  describe('with Chroma available', () => {
-    beforeEach(() => {
-      orchestrator = new SearchOrchestrator(mockSessionSearch, mockSessionStore, mockChromaSync);
+  describe('search', () => {
+    it('should select SQLite strategy for filter-only queries (no query text)', async () => {
+      const result = await orchestrator.search({
+        project: 'test-project',
+        limit: 10
+      });
+
+      expect(result.strategy).toBe('sqlite');
+      expect(result.usedVector).toBe(false);
+      expect(mockSessionSearch.searchObservations).toHaveBeenCalled();
     });
 
-    describe('search', () => {
-      it('should select SQLite strategy for filter-only queries (no query text)', async () => {
-        const result = await orchestrator.search({
-          project: 'test-project',
-          limit: 10
-        });
-
-        expect(result.strategy).toBe('sqlite');
-        expect(result.usedChroma).toBe(false);
-        expect(mockSessionSearch.searchObservations).toHaveBeenCalled();
-        expect(mockChromaSync.queryChroma).not.toHaveBeenCalled();
+    it('should use SQLite for query search (vector search handled externally)', async () => {
+      const result = await orchestrator.search({
+        query: 'semantic search query'
       });
 
-      it('should select Chroma strategy for query-only', async () => {
-        const result = await orchestrator.search({
-          query: 'semantic search query'
-        });
+      expect(result.strategy).toBe('sqlite');
+    });
 
-        expect(result.strategy).toBe('chroma');
-        expect(result.usedChroma).toBe(true);
-        expect(mockChromaSync.queryChroma).toHaveBeenCalled();
+    it('should normalize comma-separated concepts', async () => {
+      await orchestrator.search({
+        concepts: 'concept1, concept2, concept3',
+        limit: 10
       });
 
-      it('should fall back to SQLite when Chroma fails', async () => {
-        mockChromaSync.queryChroma = mock(() => Promise.reject(new Error('Chroma unavailable')));
+      const callArgs = mockSessionSearch.searchObservations.mock.calls[0];
+      expect(callArgs[1].concepts).toEqual(['concept1', 'concept2', 'concept3']);
+    });
 
-        const result = await orchestrator.search({
-          query: 'test query'
-        });
-
-        // Chroma failed, should have fallen back
-        expect(result.fellBack).toBe(true);
-        expect(result.usedChroma).toBe(false);
+    it('should normalize comma-separated files', async () => {
+      await orchestrator.search({
+        files: 'file1.ts, file2.ts',
+        limit: 10
       });
 
-      it('should normalize comma-separated concepts', async () => {
-        await orchestrator.search({
-          concepts: 'concept1, concept2, concept3',
-          limit: 10
-        });
+      const callArgs = mockSessionSearch.searchObservations.mock.calls[0];
+      expect(callArgs[1].files).toEqual(['file1.ts', 'file2.ts']);
+    });
 
-        // Should be parsed into array internally
-        const callArgs = mockSessionSearch.searchObservations.mock.calls[0];
-        expect(callArgs[1].concepts).toEqual(['concept1', 'concept2', 'concept3']);
+    it('should normalize dateStart/dateEnd into dateRange object', async () => {
+      await orchestrator.search({
+        dateStart: '2025-01-01',
+        dateEnd: '2025-01-31'
       });
 
-      it('should normalize comma-separated files', async () => {
-        await orchestrator.search({
-          files: 'file1.ts, file2.ts',
-          limit: 10
-        });
-
-        const callArgs = mockSessionSearch.searchObservations.mock.calls[0];
-        expect(callArgs[1].files).toEqual(['file1.ts', 'file2.ts']);
-      });
-
-      it('should normalize dateStart/dateEnd into dateRange object', async () => {
-        await orchestrator.search({
-          dateStart: '2025-01-01',
-          dateEnd: '2025-01-31'
-        });
-
-        const callArgs = mockSessionSearch.searchObservations.mock.calls[0];
-        expect(callArgs[1].dateRange).toEqual({
-          start: '2025-01-01',
-          end: '2025-01-31'
-        });
-      });
-
-      it('should map type to searchType for observations/sessions/prompts', async () => {
-        await orchestrator.search({
-          type: 'observations'
-        });
-
-        // Should search only observations
-        expect(mockSessionSearch.searchObservations).toHaveBeenCalled();
-        expect(mockSessionSearch.searchSessions).not.toHaveBeenCalled();
-        expect(mockSessionSearch.searchUserPrompts).not.toHaveBeenCalled();
+      const callArgs = mockSessionSearch.searchObservations.mock.calls[0];
+      expect(callArgs[1].dateRange).toEqual({
+        start: '2025-01-01',
+        end: '2025-01-31'
       });
     });
 
-    describe('findByConcept', () => {
-      it('should use hybrid strategy when Chroma available', async () => {
-        const result = await orchestrator.findByConcept('test-concept', {
-          limit: 10
-        });
-
-        // Hybrid strategy should be used
-        expect(mockSessionSearch.findByConcept).toHaveBeenCalled();
-        expect(mockChromaSync.queryChroma).toHaveBeenCalled();
+    it('should map type to searchType for observations/sessions/prompts', async () => {
+      await orchestrator.search({
+        type: 'observations'
       });
 
-      it('should return observations matching concept', async () => {
-        const result = await orchestrator.findByConcept('test-concept', {});
-
-        expect(result.results.observations.length).toBeGreaterThanOrEqual(0);
-      });
-    });
-
-    describe('findByType', () => {
-      it('should use hybrid strategy', async () => {
-        const result = await orchestrator.findByType('decision', {});
-
-        expect(mockSessionSearch.findByType).toHaveBeenCalled();
-      });
-
-      it('should handle array of types', async () => {
-        await orchestrator.findByType(['decision', 'bugfix'], {});
-
-        expect(mockSessionSearch.findByType).toHaveBeenCalledWith(['decision', 'bugfix'], expect.any(Object));
-      });
-    });
-
-    describe('findByFile', () => {
-      it('should return observations and sessions for file', async () => {
-        const result = await orchestrator.findByFile('/path/to/file.ts', {});
-
-        expect(result.observations.length).toBeGreaterThanOrEqual(0);
-        expect(mockSessionSearch.findByFile).toHaveBeenCalled();
-      });
-
-      it('should include usedChroma in result', async () => {
-        const result = await orchestrator.findByFile('/path/to/file.ts', {});
-
-        expect(typeof result.usedChroma).toBe('boolean');
-      });
-    });
-
-    describe('isChromaAvailable', () => {
-      it('should return true when Chroma is available', () => {
-        expect(orchestrator.isChromaAvailable()).toBe(true);
-      });
-    });
-
-    describe('formatSearchResults', () => {
-      it('should format results as markdown', () => {
-        const results = {
-          observations: [mockObservation],
-          sessions: [mockSession],
-          prompts: [mockPrompt]
-        };
-
-        const formatted = orchestrator.formatSearchResults(results, 'test query');
-
-        expect(formatted).toContain('test query');
-        expect(formatted).toContain('result');
-      });
-
-      it('should handle empty results', () => {
-        const results = {
-          observations: [],
-          sessions: [],
-          prompts: []
-        };
-
-        const formatted = orchestrator.formatSearchResults(results, 'no matches');
-
-        expect(formatted).toContain('No results found');
-      });
-
-      it('should indicate Chroma failure when chromaFailed is true', () => {
-        const results = {
-          observations: [],
-          sessions: [],
-          prompts: []
-        };
-
-        const formatted = orchestrator.formatSearchResults(results, 'test', true);
-
-        expect(formatted).toContain('Vector search failed');
-      });
+      expect(mockSessionSearch.searchObservations).toHaveBeenCalled();
+      expect(mockSessionSearch.searchSessions).not.toHaveBeenCalled();
+      expect(mockSessionSearch.searchUserPrompts).not.toHaveBeenCalled();
     });
   });
 
-  describe('without Chroma (null)', () => {
-    beforeEach(() => {
-      orchestrator = new SearchOrchestrator(mockSessionSearch, mockSessionStore, null);
+  describe('findByConcept', () => {
+    it('should use SQLite strategy', async () => {
+      const result = await orchestrator.findByConcept('test-concept', {
+        limit: 10
+      });
+
+      expect(result.usedVector).toBe(false);
+      expect(result.strategy).toBe('sqlite');
+      expect(mockSessionSearch.findByConcept).toHaveBeenCalled();
     });
 
-    describe('isChromaAvailable', () => {
-      it('should return false when Chroma is null', () => {
-        expect(orchestrator.isChromaAvailable()).toBe(false);
-      });
+    it('should return observations matching concept', async () => {
+      const result = await orchestrator.findByConcept('test-concept', {});
+
+      expect(result.results.observations.length).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('findByType', () => {
+    it('should use SQLite strategy', async () => {
+      const result = await orchestrator.findByType('decision', {});
+
+      expect(result.usedVector).toBe(false);
+      expect(result.strategy).toBe('sqlite');
+      expect(mockSessionSearch.findByType).toHaveBeenCalled();
     });
 
-    describe('search', () => {
-      it('should return empty results for query search without Chroma', async () => {
-        const result = await orchestrator.search({
-          query: 'semantic query'
-        });
+    it('should handle array of types', async () => {
+      await orchestrator.findByType(['decision', 'bugfix'], {});
 
-        // No Chroma available, can't do semantic search
-        expect(result.results.observations).toHaveLength(0);
-        expect(result.usedChroma).toBe(false);
-      });
+      expect(mockSessionSearch.findByType).toHaveBeenCalledWith(['decision', 'bugfix'], expect.any(Object));
+    });
+  });
 
-      it('should still work for filter-only queries', async () => {
-        const result = await orchestrator.search({
-          project: 'test-project'
-        });
+  describe('findByFile', () => {
+    it('should return observations and sessions for file', async () => {
+      const result = await orchestrator.findByFile('/path/to/file.ts', {});
 
-        expect(result.strategy).toBe('sqlite');
-        expect(result.results.observations).toHaveLength(1);
-      });
+      expect(result.observations.length).toBeGreaterThanOrEqual(0);
+      expect(mockSessionSearch.findByFile).toHaveBeenCalled();
     });
 
-    describe('findByConcept', () => {
-      it('should fall back to SQLite-only', async () => {
-        const result = await orchestrator.findByConcept('test-concept', {});
+    it('should include usedVector in result', async () => {
+      const result = await orchestrator.findByFile('/path/to/file.ts', {});
 
-        expect(result.usedChroma).toBe(false);
-        expect(result.strategy).toBe('sqlite');
-        expect(mockSessionSearch.findByConcept).toHaveBeenCalled();
-      });
+      expect(typeof result.usedVector).toBe('boolean');
+      expect(result.usedVector).toBe(false);
+    });
+  });
+
+  describe('formatSearchResults', () => {
+    it('should format results as markdown', () => {
+      const results = {
+        observations: [mockObservation],
+        sessions: [mockSession],
+        prompts: [mockPrompt]
+      };
+
+      const formatted = orchestrator.formatSearchResults(results, 'test query');
+
+      expect(formatted).toContain('test query');
+      expect(formatted).toContain('result');
     });
 
-    describe('findByType', () => {
-      it('should fall back to SQLite-only', async () => {
-        const result = await orchestrator.findByType('decision', {});
+    it('should handle empty results', () => {
+      const results = {
+        observations: [],
+        sessions: [],
+        prompts: []
+      };
 
-        expect(result.usedChroma).toBe(false);
-        expect(result.strategy).toBe('sqlite');
-      });
+      const formatted = orchestrator.formatSearchResults(results, 'no matches');
+
+      expect(formatted).toContain('No results found');
     });
 
-    describe('findByFile', () => {
-      it('should fall back to SQLite-only', async () => {
-        const result = await orchestrator.findByFile('/path/to/file.ts', {});
+    it('should indicate vector failure when vectorFailed is true', () => {
+      const results = {
+        observations: [],
+        sessions: [],
+        prompts: []
+      };
 
-        expect(result.usedChroma).toBe(false);
-        expect(mockSessionSearch.findByFile).toHaveBeenCalled();
-      });
+      const formatted = orchestrator.formatSearchResults(results, 'test', true);
+
+      expect(formatted).toContain('Vector search failed');
     });
   });
 
   describe('parameter normalization', () => {
-    beforeEach(() => {
-      orchestrator = new SearchOrchestrator(mockSessionSearch, mockSessionStore, null);
-    });
-
     it('should parse obs_type into obsType array', async () => {
       await orchestrator.search({
         obs_type: 'decision, bugfix'
@@ -392,8 +294,6 @@ describe('SearchOrchestrator', () => {
       });
 
       const callArgs = mockSessionSearch.searchObservations.mock.calls[0];
-      // Empty strings are falsy, so the normalization doesn't process them
-      // They stay as empty strings (the underlying search functions handle this)
       expect(callArgs[1].concepts).toEqual('');
       expect(callArgs[1].files).toEqual('');
     });

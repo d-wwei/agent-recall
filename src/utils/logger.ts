@@ -17,7 +17,7 @@ export enum LogLevel {
 
 export type Component =
   | 'ACTIVITY_LOG' | 'AGENTS_MD' | 'ARCHIVE' | 'AUDIT'
-  | 'CHROMA' | 'CHROMA_MCP' | 'CHROMA_SYNC' | 'CLAUDE_MD' | 'CLEANUP' | 'COMPILATION' | 'CONFIG' | 'CONSOLE' | 'CONTEXT' | 'CURSOR'
+  | 'CLAUDE_MD' | 'CLEANUP' | 'COMPILATION' | 'CONFIG' | 'CONSOLE' | 'CONTEXT' | 'CURSOR'
   | 'DASHBOARD' | 'DB' | 'DEDUP'
   | 'ENV' | 'FOLDER_INDEX'
   | 'HOOK' | 'HTTP'

@@ -15,7 +15,6 @@ import {
   touchPidFile,
   spawnDaemon,
   resolveWorkerRuntimePath,
-  runOneTimeChromaMigration,
   type PidInfo
 } from '../../src/services/infrastructure/index.js';
 
@@ -470,52 +469,4 @@ describe('ProcessManager', () => {
     });
   });
 
-  describe('runOneTimeChromaMigration', () => {
-    let testDataDir: string;
-
-    beforeEach(() => {
-      testDataDir = path.join(tmpdir(), `agent-recall-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-      mkdirSync(testDataDir, { recursive: true });
-    });
-
-    afterEach(() => {
-      rmSync(testDataDir, { recursive: true, force: true });
-    });
-
-    it('should wipe chroma directory and write marker file', () => {
-      // Create a fake chroma directory with data
-      const chromaDir = path.join(testDataDir, 'chroma');
-      mkdirSync(chromaDir, { recursive: true });
-      writeFileSync(path.join(chromaDir, 'test-data.bin'), 'fake chroma data');
-
-      runOneTimeChromaMigration(testDataDir);
-
-      // Chroma dir should be gone
-      expect(existsSync(chromaDir)).toBe(false);
-      // Marker file should exist
-      expect(existsSync(path.join(testDataDir, '.chroma-cleaned-v10.3'))).toBe(true);
-    });
-
-    it('should skip when marker file already exists (idempotent)', () => {
-      // Write marker file first
-      writeFileSync(path.join(testDataDir, '.chroma-cleaned-v10.3'), 'already done');
-
-      // Create a chroma directory that should NOT be wiped
-      const chromaDir = path.join(testDataDir, 'chroma');
-      mkdirSync(chromaDir, { recursive: true });
-      writeFileSync(path.join(chromaDir, 'important.bin'), 'should survive');
-
-      runOneTimeChromaMigration(testDataDir);
-
-      // Chroma dir should still exist (migration was skipped)
-      expect(existsSync(chromaDir)).toBe(true);
-      expect(existsSync(path.join(chromaDir, 'important.bin'))).toBe(true);
-    });
-
-    it('should handle missing chroma directory gracefully', () => {
-      // No chroma dir exists — should just write marker without error
-      expect(() => runOneTimeChromaMigration(testDataDir)).not.toThrow();
-      expect(existsSync(path.join(testDataDir, '.chroma-cleaned-v10.3'))).toBe(true);
-    });
-  });
 });

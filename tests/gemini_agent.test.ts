@@ -100,14 +100,8 @@ describe('GeminiAgent', () => {
       ensureMemorySessionIdRegistered: mock(() => {}) // Required by ResponseProcessor.ts for FK constraint fix (Issue #846)
     };
 
-    const mockChromaSync = {
-      syncObservation: mockSyncObservation,
-      syncSummary: mockSyncSummary
-    };
-
     mockDbManager = {
       getSessionStore: () => mockSessionStore,
-      getChromaSync: () => mockChromaSync
     } as unknown as DatabaseManager;
 
     const mockPendingMessageStore = {
@@ -247,7 +241,7 @@ describe('GeminiAgent', () => {
 
     // ResponseProcessor uses storeObservations (plural) for atomic transactions
     expect(mockStoreObservations).toHaveBeenCalled();
-    expect(mockSyncObservation).toHaveBeenCalled();
+    // Note: Vector sync is now handled by SeekDB's AutoMemorySync, not inline Chroma calls
     expect(session.cumulativeInputTokens).toBeGreaterThan(0);
   });
 

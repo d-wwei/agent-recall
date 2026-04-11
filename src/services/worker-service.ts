@@ -19,8 +19,6 @@ import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../shared/paths.js';
 import { getAuthMethodDescription } from '../shared/EnvManager.js';
 import { logger } from '../utils/logger.js';
-import { ChromaMcpManager } from './sync/ChromaMcpManager.js';
-import { ChromaSync } from './sync/ChromaSync.js';
 import { AutoMemorySync } from './sync/AutoMemorySync.js';
 import { LockManager } from './concurrency/LockManager.js';
 import { homedir } from 'os';
@@ -80,7 +78,6 @@ import {
   removePidFile,
   getPlatformTimeout,
   aggressiveStartupCleanup,
-  runOneTimeChromaMigration,
   cleanStalePidFile,
   isProcessAlive,
   spawnDaemon,
@@ -194,8 +191,6 @@ export class WorkerService {
   // Route handlers
   private searchRoutes: SearchRoutes | null = null;
 
-  // Chroma MCP manager (lazy - connects on first use)
-  private chromaMcpManager: ChromaMcpManager | null = null;
 
   // Initialization tracking
   private initializationComplete: Promise<void>;
@@ -520,21 +515,6 @@ export class WorkerService {
 
       const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
-      // One-time chroma wipe for users upgrading from versions with duplicate worker bugs.
-      // Only runs in local mode (chroma is local-only). Backfill at line ~414 rebuilds from SQLite.
-      if (settings.CLAUDE_MEM_MODE === 'local' || !settings.CLAUDE_MEM_MODE) {
-        runOneTimeChromaMigration();
-      }
-
-      // Initialize ChromaMcpManager only if Chroma is enabled
-      const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
-      if (chromaEnabled) {
-        this.chromaMcpManager = ChromaMcpManager.getInstance();
-        logger.info('SYSTEM', 'ChromaMcpManager initialized (lazy - connects on first use)');
-      } else {
-        logger.info('SYSTEM', 'Chroma disabled via CLAUDE_MEM_CHROMA_ENABLED=false, skipping ChromaMcpManager');
-      }
-
       const modeId = settings.CLAUDE_MEM_MODE;
       ModeManager.getInstance().loadMode(modeId);
       logger.info('SYSTEM', `Mode loaded: ${modeId}`);
@@ -567,7 +547,6 @@ export class WorkerService {
       const searchManager = new SearchManager(
         this.dbManager.getSessionSearch(),
         this.dbManager.getSessionStore(),
-        this.dbManager.getChromaSync(),
         formattingService,
         timelineService,
         this.dbManager.getSeekdbSync()
@@ -606,15 +585,6 @@ export class WorkerService {
       this.initializationCompleteFlag = true;
       this.resolveInitialization();
       logger.info('SYSTEM', 'Core initialization complete (DB + search ready)');
-
-      // Auto-backfill Chroma for all projects if out of sync with SQLite (fire-and-forget)
-      if (this.chromaMcpManager) {
-        ChromaSync.backfillAllProjects().then(() => {
-          logger.info('CHROMA_SYNC', 'Backfill check complete for all projects');
-        }).catch(error => {
-          logger.error('CHROMA_SYNC', 'Backfill failed (non-blocking)', {}, error as Error);
-        });
-      }
 
       // Connect to MCP server
       const mcpServerPath = path.join(__dirname, 'mcp-server.cjs');
@@ -1170,7 +1140,6 @@ export class WorkerService {
       sessionManager: this.sessionManager,
       mcpClient: this.mcpClient,
       dbManager: this.dbManager,
-      chromaMcpManager: this.chromaMcpManager || undefined,
       onEmergencySave: () => {
         // Emergency save: flush buffers and save checkpoints before everything shuts down
         if (this.initializationCompleteFlag) {

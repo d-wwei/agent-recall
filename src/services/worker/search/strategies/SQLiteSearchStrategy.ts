@@ -7,7 +7,7 @@
  * - Type filtering
  * - Concept/file filtering
  *
- * Used when: No query text is provided, or as a fallback when Chroma fails
+ * Used when: No query text is provided, or as a fallback when vector search is unavailable
  */
 
 import { BaseSearchStrategy, SearchStrategy } from './SearchStrategy.js';
@@ -31,7 +31,7 @@ export class SQLiteSearchStrategy extends BaseSearchStrategy implements SearchSt
 
   canHandle(options: StrategySearchOptions): boolean {
     // Can handle filter-only queries (no query text)
-    // Also used as fallback when Chroma is unavailable
+    // Also used as fallback when vector search is unavailable
     return !options.query || options.strategyHint === 'sqlite';
   }
 
@@ -91,7 +91,7 @@ export class SQLiteSearchStrategy extends BaseSearchStrategy implements SearchSt
 
       return {
         results: { observations, sessions, prompts },
-        usedChroma: false,
+        usedVector: false,
         fellBack: false,
         strategy: 'sqlite'
       };

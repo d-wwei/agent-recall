@@ -2,9 +2,7 @@
  * SearchStrategy - Interface for search strategy implementations
  *
  * Each strategy implements a different approach to searching:
- * - ChromaSearchStrategy: Vector-based semantic search via Chroma
  * - SQLiteSearchStrategy: Direct SQLite queries for filter-only searches
- * - HybridSearchStrategy: Metadata filtering + semantic ranking
  */
 
 import type { SearchResults, StrategySearchOptions, StrategySearchResult } from '../types.js';
@@ -46,14 +44,14 @@ export abstract class BaseSearchStrategy implements SearchStrategy {
   /**
    * Create an empty search result
    */
-  protected emptyResult(strategy: 'chroma' | 'sqlite' | 'hybrid'): StrategySearchResult {
+  protected emptyResult(strategy: 'sqlite'): StrategySearchResult {
     return {
       results: {
         observations: [],
         sessions: [],
         prompts: []
       },
-      usedChroma: strategy === 'chroma' || strategy === 'hybrid',
+      usedVector: false,
       fellBack: false,
       strategy
     };

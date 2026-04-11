@@ -7,7 +7,7 @@
  * Responsibility:
  * - Call Gemini REST API for observation extraction
  * - Parse XML responses (same format as Claude)
- * - Sync to database and Chroma
+ * - Sync to database and vector store
  */
 
 import { DatabaseManager } from './DatabaseManager.js';
