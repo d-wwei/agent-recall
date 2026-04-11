@@ -1,0 +1,6 @@
+{
+  "avgRecallAt5": 0.05,
+  "avgNdcg": 0.05,
+  "avgLatencyMs": 2,
+  "timestamp": "2026-04-11T07:59:38.252Z"
+}

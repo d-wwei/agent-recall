@@ -47,6 +47,9 @@ jobs:
           --path-ignore-patterns "**/seekdb-poc*"
           --path-ignore-patterns "**/backup-service*"
 
+      - name: Run search quality benchmark
+        run: bun scripts/benchmark-ci.ts
+
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
