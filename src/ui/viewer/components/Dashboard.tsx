@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { CompilationStatus } from './CompilationStatus';
+import { MermaidDiagrams } from './MermaidDiagrams';
+import { LLMCostTracker } from './LLMCostTracker';
 
 interface DashboardData {
   totalObservations: number;
@@ -123,6 +126,10 @@ export function Dashboard({ project, apiBase }: { project: string; apiBase: stri
           <span><span className="dot archive" /> Archive ({data.freshness.archive})</span>
         </div>
       </div>
+
+      <CompilationStatus project={project} apiBase={apiBase} />
+      <MermaidDiagrams project={project} apiBase={apiBase} />
+      <LLMCostTracker project={project} apiBase={apiBase} model="claude-opus-4-6" />
     </div>
   );
 }

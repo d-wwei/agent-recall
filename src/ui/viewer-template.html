@@ -907,6 +907,112 @@
     .dot.archive { background: #6b7280; }
 
     /* ==========================================================
+       COMPILATION STATUS
+       ========================================================== */
+    .compilation-stats-row {
+      display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px;
+    }
+    .compilation-stat {
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .compilation-stat-label {
+      font-family: var(--mono); font-size: 9px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .06em; color: var(--text-4);
+    }
+    .compilation-stat-value {
+      font-family: var(--mono); font-size: 15px; font-weight: 600;
+      color: var(--text-1); font-variant-numeric: tabular-nums;
+    }
+    .compilation-meta {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
+    }
+    .ai-merge-badge {
+      font-family: var(--mono); font-size: 10px; font-weight: 600;
+      letter-spacing: .04em; padding: 3px 8px; border-radius: 4px;
+    }
+    .ai-merge-badge.active {
+      background: var(--green-glow); color: var(--green); border: 1px solid var(--green);
+    }
+    .ai-merge-badge.inactive {
+      background: var(--bg-surface); color: var(--text-4); border: 1px solid var(--border);
+    }
+    .lint-toggle {
+      font-family: var(--mono); font-size: 10px; font-weight: 500;
+      padding: 3px 10px; background: none;
+      border: 1px solid var(--amber-dim); border-radius: 4px;
+      color: var(--amber); cursor: pointer; transition: all .12s;
+    }
+    .lint-toggle:hover { background: var(--amber-subtle); }
+    .lint-list {
+      list-style: none; margin-top: 8px;
+      border: 1px solid var(--border); border-radius: 6px;
+      overflow: hidden;
+    }
+    .lint-item {
+      display: flex; align-items: baseline; gap: 8px;
+      padding: 7px 12px; font-family: var(--sans); font-size: 12px;
+      color: var(--text-2); border-bottom: 1px solid var(--border-subtle);
+    }
+    .lint-item:last-child { border-bottom: none; }
+    .lint-description { flex: 1; }
+    .lint-obs-id { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+    .lint-type {
+      font-family: var(--mono); font-size: 9px; font-weight: 600;
+      letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 3px; flex-shrink: 0;
+      background: var(--bg-surface); color: var(--text-3);
+    }
+    .lint-type-contradiction { background: rgba(208,96,80,0.15); color: var(--red); }
+    .lint-type-stale { background: rgba(212,168,76,0.12); color: var(--amber); }
+    .lint-type-orphan { background: rgba(90,190,170,0.1); color: var(--teal); }
+    .lint-type-low_confidence { background: rgba(164,136,192,0.12); color: var(--plum); }
+
+    /* ==========================================================
+       MERMAID DIAGRAMS
+       ========================================================== */
+    .mermaid-container {
+      display: flex; flex-direction: column; gap: 16px; margin-top: 8px;
+    }
+    .mermaid-block {
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px; overflow-x: auto;
+      font-family: var(--mono); font-size: 12px; color: var(--text-2);
+      white-space: pre;
+    }
+    .mermaid-raw code { white-space: pre; }
+
+    /* ==========================================================
+       LLM COST TRACKER
+       ========================================================== */
+    .cost-summary {
+      display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px;
+    }
+    .compilation-log-table {
+      width: 100%; border-collapse: collapse;
+      font-family: var(--mono); font-size: 11px; color: var(--text-2);
+      margin-top: 8px;
+    }
+    .compilation-log-table th {
+      text-align: left; padding: 6px 8px;
+      font-size: 9px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--text-4);
+      border-bottom: 1px solid var(--border);
+    }
+    .compilation-log-table td {
+      padding: 8px 8px; border-bottom: 1px solid var(--border-subtle);
+      font-variant-numeric: tabular-nums;
+    }
+    .compilation-log-table tr:last-child td { border-bottom: none; }
+    .compilation-log-table tbody tr:hover td { background: var(--bg-hover); }
+    .status-dot {
+      display: inline-block; width: 7px; height: 7px;
+      border-radius: 50%; margin-right: 5px; vertical-align: middle;
+    }
+    .status-dot.success { background: var(--green); }
+    .status-dot.failed { background: var(--red); }
+    .status-dot.running { background: var(--amber); animation: pulse 1.5s ease infinite; }
+
+    /* ==========================================================
        SEARCH EXPLANATION
        ========================================================== */
     .search-explanation {
@@ -950,6 +1056,8 @@
 
 <body>
   <div id="root"></div>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>if(window.mermaid){mermaid.initialize({startOnLoad:false,theme:'dark',securityLevel:'loose'})}</script>
   <script src="viewer-bundle.js"></script>
 </body>
 
