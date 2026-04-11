@@ -89,8 +89,14 @@ export class CompilationEngine {
         };
       }
 
-      // 4. Consolidate — merge into compiled pages
-      const pages = this.consolidate.execute(groups, existingKnowledge, ctx);
+      // 4. Consolidate — merge into compiled pages (async: may call LLM)
+      const pages = await this.consolidate.execute(groups, existingKnowledge, ctx);
+
+      // 4b. Mermaid diagram generation — non-critical, appended if available
+      try {
+        const diagramPage = await this.consolidate.generateMermaidDiagrams(pages, ctx);
+        if (diagramPage) pages.push(diagramPage);
+      } catch { /* non-critical — compilation continues without diagrams */ }
 
       // 5. Prune — write to DB + update observation metadata
       const result = this.prune.execute(pages, existingKnowledge, ctx);

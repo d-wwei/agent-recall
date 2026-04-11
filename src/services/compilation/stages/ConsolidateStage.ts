@@ -10,13 +10,17 @@
  *   - discovery / feature -> 'fact'    (append, don't replace)
  *   - bugfix / refactor   -> 'event'   (timeline entry)
  *
- * Merge strategy: structuredMerge classifies observations into Status/Facts/Timeline
- * sections, deduplicates, and produces clean Markdown output. An aiMerge method
- * is prepared for future LLM-powered summarisation.
+ * Merge strategy: when ANTHROPIC_API_KEY is set and AI merge is enabled,
+ * aiMerge() calls the LLM for intelligent synthesis; otherwise structuredMerge
+ * classifies observations into Status/Facts/Timeline sections, deduplicates,
+ * and produces clean Markdown output.
  */
 
 import type { CompiledKnowledgeRow } from './OrientStage.js';
-import type { TopicGroup, ObservationRow, CompiledPage, CompilationContext, EvidenceEntry } from '../types.js';
+import type { TopicGroup, ObservationRow, CompiledPage, CompilationContext, EvidenceEntry, AIMergeResult } from '../types.js';
+import { LLMCompiler } from '../LLMCompiler.js';
+import { buildSynthesisPrompt, buildMermaidPrompt } from '../prompts.js';
+import { parseSynthesisResponse, parseMermaidResponse } from '../ResponseParser.js';
 
 // ─── Classification mapping ────────────────────────────────────────────────
 
@@ -54,40 +58,38 @@ function dominantClassification(observations: ObservationRow[]): Classification 
   return 'event';
 }
 
-// ─── AI Merge prompt (stored for future LLM integration) ─────────────────
-
-/**
- * Prompt template for AI-powered knowledge merge.
- * Currently unused — structuredMerge is used instead.
- * When LLM integration is available, aiMerge() will call Haiku with this prompt.
- */
-const AI_MERGE_PROMPT_TEMPLATE = `You are a knowledge compiler. Merge these observations about "{{topic}}" into a concise, structured knowledge page.
-
-{{existing_block}}{{observations}}
-
-Rules:
-- For STATUS information (current state, tech stack): replace old values with new
-- For FACTS (permanent truths): append, don't replace
-- For EVENTS (decisions, bugs, migrations): add to timeline
-- Remove duplicates and contradictions (keep the newer one)
-- Output clean Markdown with sections: ## Status, ## Facts, ## Timeline
-- Be concise — each item one line`;
-
 // ─── ConsolidateStage ────────────────────────────────────────────────────────
 
 export class ConsolidateStage {
   /**
+   * Returns a configured LLMCompiler if an API key is present and AI merge is
+   * not explicitly disabled via AGENT_RECALL_AI_MERGE_ENABLED=false.
+   * Returns null when the feature should be skipped.
+   */
+  private getLLMCompiler(): LLMCompiler | null {
+    const apiKey = process.env.ANTHROPIC_API_KEY || '';
+    const aiEnabled = process.env.AGENT_RECALL_AI_MERGE_ENABLED !== 'false';
+    if (!apiKey || !aiEnabled) return null;
+    const model = process.env.AGENT_RECALL_COMPILATION_MODEL || 'claude-opus-4-6';
+    return new LLMCompiler({ apiKey, model });
+  }
+
+  /**
    * Merge topic groups into compiled pages.
+   *
+   * When an API key is configured (and AI merge is not disabled), each topic
+   * group is merged via LLM synthesis. Otherwise structuredMerge is used as
+   * the fallback.
    *
    * @param groups - Topic groups from GatherStage
    * @param existingKnowledge - Current compiled knowledge from OrientStage
-   * @param _ctx - Compilation context (reserved for future AI-powered merge)
+   * @param _ctx - Compilation context
    */
-  execute(
+  async execute(
     groups: TopicGroup[],
     existingKnowledge: Map<string, CompiledKnowledgeRow>,
     _ctx: CompilationContext
-  ): CompiledPage[] {
+  ): Promise<CompiledPage[]> {
     const pages: CompiledPage[] = [];
 
     for (const group of groups) {
@@ -107,7 +109,6 @@ export class ConsolidateStage {
       const newIds = group.observations.map(o => o.id);
       const allIds = [...new Set([...existingIds, ...newIds])];
 
-      const content = this.structuredMerge(group.topic, group.observations, existingContent);
       const classification = dominantClassification(group.observations);
 
       // Confidence: high if all observations agree on classification,
@@ -124,40 +125,87 @@ export class ConsolidateStage {
         summary: (obs.narrative || '').substring(0, 100),
       }));
 
-      pages.push({
+      // Attempt AI merge; fall back to structured merge on null result
+      const aiResult = await this.aiMerge(group.topic, group.observations, existingContent);
+      const content = aiResult
+        ? aiResult.content
+        : this.structuredMerge(group.topic, group.observations, existingContent);
+
+      const page: CompiledPage = {
         topic: group.topic,
         content,
         sourceObservationIds: allIds,
         confidence,
         classification,
         evidenceTimeline,
-      });
+      };
+
+      if (aiResult) {
+        page.aiSuperseded = aiResult.superseded;
+        page.tokensUsed = aiResult.tokensUsed;
+      }
+
+      pages.push(page);
     }
 
     return pages;
   }
 
   /**
-   * AI-powered merge (future enhancement).
+   * AI-powered merge using the Anthropic Messages API.
    *
-   * Builds a prompt and would call an LLM for intelligent merging.
-   * Currently falls back to structuredMerge since we don't want to require API keys.
-   * In production, this would call Haiku via the existing agent infrastructure.
+   * Returns null when no API key is configured, AI merge is disabled, or the
+   * LLM call fails — the caller must fall back to structuredMerge in that case.
    */
-  private async aiMerge(topic: string, observations: ObservationRow[], existingContent: string | null): Promise<string> {
-    const obsText = observations.map(o =>
-      `- [${o.type}] ${o.title}: ${o.narrative || ''}`
-    ).join('\n');
+  private async aiMerge(topic: string, observations: ObservationRow[], existingContent: string | null): Promise<AIMergeResult | null> {
+    const compiler = this.getLLMCompiler();
+    if (!compiler) return null;
 
-    // Build the prompt from template (kept for documentation / future use)
-    const _prompt = AI_MERGE_PROMPT_TEMPLATE
-      .replace('{{topic}}', topic)
-      .replace('{{existing_block}}', existingContent ? `Existing knowledge:\n${existingContent}\n\nNew observations to integrate:\n` : 'Observations:\n')
-      .replace('{{observations}}', obsText);
+    const prompt = buildSynthesisPrompt(topic, observations, existingContent);
+    const response = await compiler.call(prompt);
+    if (!response) return null;
 
-    // For now, use structured local merge since we don't want to require API keys
-    // In production, this would call Haiku via the existing agent infrastructure
-    return this.structuredMerge(topic, observations, existingContent);
+    const parsed = parseSynthesisResponse(response);
+    return {
+      content: parsed.content,
+      conflicts: parsed.conflicts,
+      superseded: parsed.superseded,
+      tokensUsed: compiler.getTotalTokensUsed(),
+    };
+  }
+
+  /**
+   * Generate Mermaid diagrams that visualise cross-topic relationships.
+   *
+   * Called after execute() completes. Returns a synthetic CompiledPage with
+   * topic '_mermaid_diagrams', or null if generation is disabled / unavailable.
+   */
+  async generateMermaidDiagrams(pages: CompiledPage[], _ctx: CompilationContext): Promise<CompiledPage | null> {
+    const mermaidEnabled = process.env.AGENT_RECALL_MERMAID_ENABLED !== 'false';
+    if (!mermaidEnabled) return null;
+
+    const compiler = this.getLLMCompiler();
+    if (!compiler) return null;
+
+    const pageData = pages.map(p => ({ topic: p.topic, content: p.content }));
+    const prompt = buildMermaidPrompt(pageData);
+    if (!prompt) return null;
+
+    const response = await compiler.call(prompt);
+    if (!response) return null;
+
+    const diagrams = parseMermaidResponse(response);
+    if (diagrams.length === 0) return null;
+
+    const content = diagrams.map(d => '```mermaid\n' + d + '\n```').join('\n\n');
+    return {
+      topic: '_mermaid_diagrams',
+      content,
+      sourceObservationIds: pages.flatMap(p => p.sourceObservationIds),
+      confidence: 'medium' as const,
+      classification: 'fact' as const,
+      evidenceTimeline: [],
+    };
   }
 
   /**

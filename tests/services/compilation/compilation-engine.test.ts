@@ -372,7 +372,7 @@ describe('GatherStage', () => {
 });
 
 describe('ConsolidateStage', () => {
-  it('creates new pages from observation groups with structured sections', () => {
+  it('creates new pages from observation groups with structured sections', async () => {
     const groups: TopicGroup[] = [{
       topic: 'auth',
       observations: [
@@ -382,7 +382,7 @@ describe('ConsolidateStage', () => {
 
     const stage = new ConsolidateStage();
     const ctx: CompilationContext = { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 };
-    const pages = stage.execute(groups, new Map(), ctx);
+    const pages = await stage.execute(groups, new Map(), ctx);
 
     expect(pages).toHaveLength(1);
     expect(pages[0].topic).toBe('auth');
@@ -394,7 +394,7 @@ describe('ConsolidateStage', () => {
     expect(pages[0].classification).toBe('fact');
   });
 
-  it('merges existing structured content when knowledge page exists', () => {
+  it('merges existing structured content when knowledge page exists', async () => {
     const existingKnowledge = new Map([
       ['auth', {
         id: 1, project: PROJECT, topic: 'auth',
@@ -414,7 +414,7 @@ describe('ConsolidateStage', () => {
 
     const stage = new ConsolidateStage();
     const ctx: CompilationContext = { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 };
-    const pages = stage.execute(groups, existingKnowledge, ctx);
+    const pages = await stage.execute(groups, existingKnowledge, ctx);
 
     expect(pages).toHaveLength(1);
     expect(pages[0].content).toContain('Existing auth fact');
@@ -424,7 +424,7 @@ describe('ConsolidateStage', () => {
     expect(pages[0].sourceObservationIds).toContain(20);
   });
 
-  it('classifies decision/change as status and puts them in Status section', () => {
+  it('classifies decision/change as status and puts them in Status section', async () => {
     const groups: TopicGroup[] = [{
       topic: 'arch',
       observations: [
@@ -433,14 +433,14 @@ describe('ConsolidateStage', () => {
     }];
 
     const stage = new ConsolidateStage();
-    const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
+    const pages = await stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
     expect(pages[0].classification).toBe('status');
     expect(pages[0].content).toContain('### Status');
     expect(pages[0].content).toContain('Decided on microservices');
   });
 
-  it('classifies bugfix/refactor as event and puts them in Timeline section', () => {
+  it('classifies bugfix/refactor as event and puts them in Timeline section', async () => {
     const groups: TopicGroup[] = [{
       topic: 'fixes',
       observations: [
@@ -449,14 +449,14 @@ describe('ConsolidateStage', () => {
     }];
 
     const stage = new ConsolidateStage();
-    const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
+    const pages = await stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
     expect(pages[0].classification).toBe('event');
     expect(pages[0].content).toContain('### Timeline');
     expect(pages[0].content).toContain('[bugfix] Fixed memory leak');
   });
 
-  it('sets confidence=medium when observation types are mixed', () => {
+  it('sets confidence=medium when observation types are mixed', async () => {
     const groups: TopicGroup[] = [{
       topic: 'mixed',
       observations: [
@@ -466,7 +466,7 @@ describe('ConsolidateStage', () => {
     }];
 
     const stage = new ConsolidateStage();
-    const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
+    const pages = await stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
     expect(pages[0].confidence).toBe('medium');
     // Mixed types should produce both Status and Timeline sections
@@ -474,7 +474,7 @@ describe('ConsolidateStage', () => {
     expect(pages[0].content).toContain('### Timeline');
   });
 
-  it('deduplicates facts across observations in Facts section', () => {
+  it('deduplicates facts across observations in Facts section', async () => {
     const groups: TopicGroup[] = [{
       topic: 'api',
       observations: [
@@ -484,7 +484,7 @@ describe('ConsolidateStage', () => {
     }];
 
     const stage = new ConsolidateStage();
-    const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
+    const pages = await stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
     expect(pages[0].content).toContain('### Facts');
     const factsSection = pages[0].content.split('### Facts')[1] || '';
@@ -498,7 +498,7 @@ describe('ConsolidateStage', () => {
     expect(restApiCount).toBe(1); // deduplication works
   });
 
-  it('builds evidence_timeline from source observations', () => {
+  it('builds evidence_timeline from source observations', async () => {
     const now = Date.now();
     const groups: TopicGroup[] = [{
       topic: 'auth',
@@ -510,7 +510,7 @@ describe('ConsolidateStage', () => {
 
     const stage = new ConsolidateStage();
     const ctx: CompilationContext = { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 };
-    const pages = stage.execute(groups, new Map(), ctx);
+    const pages = await stage.execute(groups, new Map(), ctx);
 
     expect(pages[0].evidenceTimeline).toHaveLength(2);
     expect(pages[0].evidenceTimeline[0].observationId).toBe(10);
@@ -521,7 +521,7 @@ describe('ConsolidateStage', () => {
     expect(pages[0].evidenceTimeline[1].summary).toBe('');
   });
 
-  it('truncates evidence_timeline summary to 100 chars', () => {
+  it('truncates evidence_timeline summary to 100 chars', async () => {
     const longNarrative = 'A'.repeat(200);
     const groups: TopicGroup[] = [{
       topic: 'test',
@@ -531,11 +531,11 @@ describe('ConsolidateStage', () => {
     }];
 
     const stage = new ConsolidateStage();
-    const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
+    const pages = await stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
     expect(pages[0].evidenceTimeline[0].summary.length).toBe(100);
   });
 
-  it('produces all three sections when observations span types', () => {
+  it('produces all three sections when observations span types', async () => {
     const groups: TopicGroup[] = [{
       topic: 'project',
       observations: [
@@ -546,7 +546,7 @@ describe('ConsolidateStage', () => {
     }];
 
     const stage = new ConsolidateStage();
-    const pages = stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
+    const pages = await stage.execute(groups, new Map(), { project: PROJECT, db: null as unknown as Database, lastCompilationEpoch: 0 });
 
     expect(pages[0].content).toContain('### Status');
     expect(pages[0].content).toContain('### Facts');

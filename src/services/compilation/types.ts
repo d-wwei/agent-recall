@@ -60,6 +60,18 @@ export interface CompiledPage {
   confidence: 'high' | 'medium' | 'low';
   classification: 'status' | 'fact' | 'event';
   evidenceTimeline: EvidenceEntry[];
+  /** AI-detected superseded observations (present only when AI merge ran). */
+  aiSuperseded?: Array<{ oldId: number; newId: number; reason: string }>;
+  /** Total tokens consumed by LLM calls for this page (present only when AI merge ran). */
+  tokensUsed?: number;
+}
+
+/** Result from an AI-powered merge operation. */
+export interface AIMergeResult {
+  content: string;
+  conflicts: Array<{ oldId: number; newId: number; description: string }>;
+  superseded: Array<{ oldId: number; newId: number; reason: string }>;
+  tokensUsed: number;
 }
 
 /** Summary returned after a full compilation run. */
@@ -68,4 +80,6 @@ export interface CompilationResult {
   pagesUpdated: number;
   observationsProcessed: number;
   errors: string[];
+  /** Total tokens consumed by LLM calls across the entire run (present only when AI merge ran). */
+  tokensUsed?: number;
 }
