@@ -12,4 +12,7 @@ export const API_ENDPOINTS = {
   STREAM: '/stream',
   DASHBOARD: '/api/dashboard',
   DASHBOARD_SUMMARY: '/api/dashboard/summary',
+  COMPILATION_STATS: '/api/compilation/stats',
+  COMPILATION_LOGS: '/api/compilation/logs',
+  COMPILATION_DIAGRAMS: '/api/compilation/diagrams',
 } as const;

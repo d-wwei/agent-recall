@@ -574,6 +574,10 @@ export class WorkerService {
         // Dashboard
         const { DashboardRoutes } = await import('./worker/http/routes/DashboardRoutes.js');
         this.server.registerRoutes(new DashboardRoutes(this.dbManager));
+
+        // Compilation
+        const { CompilationRoutes } = await import('./worker/http/routes/CompilationRoutes.js');
+        this.server.registerRoutes(new CompilationRoutes(this.dbManager));
         logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup, templates, audit)');
       } catch (e) {
         logger.warn('WORKER', 'Agent Recall routes registration failed', {}, e as Error);
