@@ -29,8 +29,12 @@
   "exports": {
     "./modes/*": "./plugin/modes/*"
   },
+  "bin": {
+    "agent-recall": "./bin/agent-recall.cjs"
+  },
   "files": [
     "plugin",
+    "bin",
     "!plugin/scripts/claude-mem"
   ],
   "engines": {
