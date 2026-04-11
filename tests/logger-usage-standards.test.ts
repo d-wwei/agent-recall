@@ -44,6 +44,10 @@ const EXCLUDED_PATTERNS = [
   /services\/worker\/search\/FusionRanker\.ts$/, // Pure scoring algorithm
   /services\/worker\/search\/SearchExplainer\.ts$/, // Pure keyword-matching algorithm
   /services\/worker\/search\/OutputFormatter\.ts$/, // Pure formatting — no I/O
+  /cli\/installer\//,  // CLI installer commands use console.error for user-facing terminal output
+  /services\/compilation\/LLMCompiler\.ts$/,  // HTTP client — no logger dependency needed
+  /services\/compilation\/ResponseParser\.ts$/, // Pure parsing algorithm
+  /services\/compilation\/prompts\.ts$/,  // Pure string templates
 ];
 
 // Files that should always use logger (core business logic)
