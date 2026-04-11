@@ -28,10 +28,10 @@ import {
   formatFail,
   formatSkip,
   formatBanner,
-} from '../lib/output.ts';
-import { detectPlatforms, getPlatformById } from '../lib/platform-detect.ts';
-import { registerHooks, isHooksRegistered } from '../lib/hook-register.ts';
-import { checkBunAvailable, checkWorkerRunning } from '../lib/runtime-check.ts';
+} from '../lib/output.js';
+import { detectPlatforms, getPlatformById } from '../lib/platform-detect.js';
+import { registerHooks, isHooksRegistered } from '../lib/hook-register.js';
+import { checkBunAvailable, checkWorkerRunning } from '../lib/runtime-check.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -383,7 +383,6 @@ export async function run(options: InstallOptions = {}): Promise<number> {
     spawnSync('node', [bunRunnerPath, workerServicePath, 'start'], {
       stdio: 'pipe',
       timeout: 15_000,
-      detached: false,
     });
 
     // ── Step 8: Verify health endpoint ──────────────────────────────────────

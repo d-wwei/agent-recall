@@ -12,6 +12,11 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const CLI_INSTALLER = {
+  name: 'agent-recall',
+  source: 'src/cli/installer/index.ts'
+};
+
 const WORKER_SERVICE = {
   name: 'worker-service',
   source: 'src/services/worker-service.ts'
@@ -182,6 +187,37 @@ async function buildHooks() {
     const contextGenStats = fs.statSync(`${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`);
     console.log(`✓ context-generator built (${(contextGenStats.size / 1024).toFixed(2)} KB)`);
 
+    // Build CLI installer
+    console.log(`\n🔧 Building CLI installer...`);
+    fs.mkdirSync('bin', { recursive: true });
+    await build({
+      entryPoints: [CLI_INSTALLER.source],
+      bundle: true,
+      platform: 'node',
+      target: 'node18',
+      format: 'cjs',
+      outfile: `bin/${CLI_INSTALLER.name}.cjs`,
+      minify: true,
+      logLevel: 'error',
+      external: [
+        'bun:sqlite',
+        'cohere-ai',
+        'ollama',
+        '@chroma-core/default-embed',
+        'onnxruntime-node'
+      ],
+      define: {
+        '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
+      },
+      banner: {
+        js: '#!/usr/bin/env node'
+      }
+    });
+
+    fs.chmodSync(`bin/${CLI_INSTALLER.name}.cjs`, 0o755);
+    const cliStats = fs.statSync(`bin/${CLI_INSTALLER.name}.cjs`);
+    console.log(`✓ agent-recall CLI built (${(cliStats.size / 1024).toFixed(2)} KB)`);
+
     // Verify critical distribution files exist (skills are source files, not build outputs)
     console.log('\n📋 Verifying distribution files...');
     const requiredDistributionFiles = [
@@ -197,11 +233,13 @@ async function buildHooks() {
     }
     console.log('✓ All required distribution files present');
 
-    console.log('\n✅ Worker service, MCP server, and context generator built successfully!');
+    console.log('\n✅ All artifacts built successfully!');
     console.log(`   Output: ${hooksDir}/`);
     console.log(`   - Worker: worker-service.cjs`);
     console.log(`   - MCP Server: mcp-server.cjs`);
     console.log(`   - Context Generator: context-generator.cjs`);
+    console.log(`   Output: bin/`);
+    console.log(`   - CLI installer: agent-recall.cjs`);
 
   } catch (error) {
     console.error('\n❌ Build failed:', error.message);

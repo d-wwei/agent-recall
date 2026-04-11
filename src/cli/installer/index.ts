@@ -102,9 +102,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   await loader();
 }
 
-// Run when executed directly (not imported as a module in tests)
-// In the compiled CJS bundle this check is equivalent to require.main === module.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run when executed directly (not imported as a module in tests).
+// Check both CJS (compiled bundle) and ESM (source / ts-node) environments.
+const _isMain = typeof require !== 'undefined' && typeof module !== 'undefined'
+  ? require.main === module || !module.parent
+  : import.meta.url === `file://${process.argv[1]}`;
+
+if (_isMain) {
   main().catch(err => {
     log(formatFail(String(err)));
     process.exit(1);
