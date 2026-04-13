@@ -48,7 +48,7 @@ export function queryObservations(
       facts, concepts, files_read, files_modified, discovery_tokens,
       created_at, created_at_epoch
     FROM observations
-    WHERE project = ?
+    WHERE (project = ? OR scope = 'global')
       AND type IN (${typePlaceholders})
       AND EXISTS (
         SELECT 1 FROM json_each(concepts)
@@ -72,7 +72,7 @@ export function querySummaries(
   return db.db.prepare(`
     SELECT id, memory_session_id, request, investigated, learned, completed, next_steps, structured_summary, created_at, created_at_epoch
     FROM session_summaries
-    WHERE project = ?
+    WHERE project = ? OR scope = 'global'
     ORDER BY created_at_epoch DESC
     LIMIT ?
   `).all(project, config.sessionCount + SUMMARY_LOOKAHEAD) as SessionSummary[];
@@ -106,7 +106,7 @@ export function queryObservationsMulti(
       facts, concepts, files_read, files_modified, discovery_tokens,
       created_at, created_at_epoch, project
     FROM observations
-    WHERE project IN (${projectPlaceholders})
+    WHERE (project IN (${projectPlaceholders}) OR scope = 'global')
       AND type IN (${typePlaceholders})
       AND EXISTS (
         SELECT 1 FROM json_each(concepts)
@@ -136,7 +136,7 @@ export function querySummariesMulti(
   return db.db.prepare(`
     SELECT id, memory_session_id, request, investigated, learned, completed, next_steps, structured_summary, created_at, created_at_epoch, project
     FROM session_summaries
-    WHERE project IN (${projectPlaceholders})
+    WHERE project IN (${projectPlaceholders}) OR scope = 'global'
     ORDER BY created_at_epoch DESC
     LIMIT ?
   `).all(...projects, config.sessionCount + SUMMARY_LOOKAHEAD) as SessionSummary[];
