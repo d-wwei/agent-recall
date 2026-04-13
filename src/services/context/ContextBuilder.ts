@@ -518,6 +518,31 @@ export async function generateContext(
       }
     }
 
+    // Agent Recall: Active learning knowledge gap hints (L1 — non-blocking)
+    try {
+      const { ActiveLearningService } = await import('../learning/ActiveLearningService.js');
+      const learningService = new ActiveLearningService(db.db);
+      const score = learningService.getCompletenessScore(project);
+      if (score < 60) {
+        completenessHints.push(`\n> Knowledge completeness: ${score}%. Consider exploring under-documented areas.`);
+      }
+    } catch (err) {
+      logger.debug('CONTEXT', 'Active learning check failed (non-blocking)', { error: String(err) });
+    }
+
+    // Agent Recall: Multi-agent file conflict warnings (L1 — non-blocking)
+    try {
+      const { MultiAgentCoordinator } = await import('../collaboration/MultiAgentCoordinator.js');
+      const coordinator = new MultiAgentCoordinator(db.db);
+      const conflicts = coordinator.detectFileConflicts(project);
+      if (conflicts.length > 0) {
+        const conflictList = conflicts.slice(0, 3).map((c: any) => `${c.file} (${c.sessions.length} sessions)`).join(', ');
+        completenessHints.push(`\n> **File conflicts detected:** ${conflictList}. Coordinate with other sessions.`);
+      }
+    } catch (err) {
+      logger.debug('CONTEXT', 'Multi-agent conflict check failed (non-blocking)', { error: String(err) });
+    }
+
     // Create token budget manager for L0-L3 enforcement
     const budgetManager = new TokenBudgetManager((config as any).tokenBudget || 3000);
 

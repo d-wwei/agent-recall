@@ -321,6 +321,9 @@ export class SessionRoutes extends BaseRouteHandler {
     app.post('/api/sessions/observations', this.handleObservationsByClaudeId.bind(this));
     app.post('/api/sessions/summarize', this.handleSummarizeByClaudeId.bind(this));
     app.post('/api/sessions/complete', this.handleCompleteByClaudeId.bind(this));
+
+    // Compaction verification (manual trigger)
+    app.get('/api/compaction/verify/:sessionId', this.wrapHandler(this.handleVerifyCompaction.bind(this)));
   }
 
   /**
@@ -652,6 +655,56 @@ export class SessionRoutes extends BaseRouteHandler {
     });
 
     res.json({ status: 'completed', sessionDbId });
+
+    // Non-blocking compaction verification (quality signal)
+    setImmediate(async () => {
+      try {
+        const { CompactionVerifier } = await import('../../../compaction/CompactionVerifier.js');
+        const verifier = new CompactionVerifier(store.db);
+
+        const session = store.db.prepare(
+          'SELECT memory_session_id, project FROM sdk_sessions WHERE id = ?'
+        ).get(sessionDbId) as { memory_session_id: string | null; project: string } | undefined;
+        if (!session?.memory_session_id) return;
+
+        if (verifier.shouldSkipVerification(session.memory_session_id)) return;
+
+        const result = verifier.verify(session.project, session.memory_session_id);
+        if (!result.isComplete) {
+          logger.warn('COMPACTION', 'Session summary may be incomplete', {
+            contentSessionId,
+            missingTopics: result.missingTopics,
+            coverage: `${result.observationsCovered}/${result.observationsTotal}`
+          });
+        }
+      } catch (err) {
+        logger.debug('COMPACTION', 'Verification failed (non-blocking)', {
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
+    });
+  });
+
+  /**
+   * Manual compaction verification for a session
+   * GET /api/compaction/verify/:sessionId
+   */
+  private handleVerifyCompaction = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const memorySessionId = req.params.sessionId;
+    const project = req.query.project as string;
+    if (!project) { this.badRequest(res, 'project query parameter required'); return; }
+
+    const { CompactionVerifier } = await import('../../../compaction/CompactionVerifier.js');
+    const store = this.dbManager.getSessionStore();
+    const verifier = new CompactionVerifier(store.db);
+
+    if (verifier.shouldSkipVerification(memorySessionId)) {
+      res.json({ skipped: true, reason: 'fewer than 3 observations' });
+      return;
+    }
+
+    const result = verifier.verify(project, memorySessionId);
+    res.json(result);
   });
 
   /**

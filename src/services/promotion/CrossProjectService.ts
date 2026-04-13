@@ -101,15 +101,14 @@ export class CrossProjectService {
       now,
     );
 
-    // Create fact linking to global scope
+    // Create fact linking to global scope (object is NULL — project list is in entity properties)
     const factId = `_global_fact:${pattern.pattern}:${Date.now()}`;
     this.db.prepare(`
       INSERT OR IGNORE INTO facts (id, subject, predicate, object, confidence, created_at)
-      VALUES (?, ?, 'observed_across_projects', ?, ?, ?)
+      VALUES (?, ?, 'observed_across_projects', NULL, ?, ?)
     `).run(
       factId,
       entityId,
-      `projects:${pattern.projects.join(',')}`,
       pattern.confidence,
       now,
     );

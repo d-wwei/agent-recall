@@ -187,6 +187,7 @@ export class WorkerService {
   private paginationHelper: PaginationHelper;
   private settingsManager: SettingsManager;
   private sessionEventBroadcaster: SessionEventBroadcaster;
+  private transcriptWatcher: any | null = null; // TranscriptWatcher — lazy imported
 
   // Route handlers
   private searchRoutes: SearchRoutes | null = null;
@@ -204,6 +205,16 @@ export class WorkerService {
 
   // Data retention cleanup interval (daily, opt-in)
   private dataRetentionInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Backup service and scheduled interval (daily)
+  private backupService: any = null;
+  private backupInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Cross-project pattern detection interval (every 6 hours)
+  private crossProjectInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Markdown sync interval
+  private markdownSyncInterval: ReturnType<typeof setInterval> | null = null;
 
   // Phase 1: concurrency lock manager
   private lockManager: LockManager | null = null;
@@ -578,7 +589,58 @@ export class WorkerService {
         // Compilation
         const { CompilationRoutes } = await import('./worker/http/routes/CompilationRoutes.js');
         this.server.registerRoutes(new CompilationRoutes(this.dbManager));
-        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup, templates, audit)');
+
+        // --- Wiring orphaned services ---
+
+        // Backup (file-level, no DB connection needed)
+        const { BackupService } = await import('./backup/BackupService.js');
+        const dataDir = SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR');
+        const dbPath = path.join(dataDir, 'agent-recall.db');
+        const backupDir = path.join(dataDir, 'backups');
+        this.backupService = new BackupService(dbPath, backupDir);
+        const { BackupRoutes } = await import('./worker/http/routes/BackupRoutes.js');
+        this.server.registerRoutes(new BackupRoutes(this.backupService));
+
+        // Diary
+        const { DiaryService } = await import('./diary/DiaryService.js');
+        const diaryService = new DiaryService(db);
+        const { DiaryRoutes } = await import('./worker/http/routes/DiaryRoutes.js');
+        this.server.registerRoutes(new DiaryRoutes(diaryService));
+
+        // Team Knowledge + Multi-Agent Coordinator
+        const { TeamKnowledgeService } = await import('./collaboration/TeamKnowledgeService.js');
+        const { MultiAgentCoordinator } = await import('./collaboration/MultiAgentCoordinator.js');
+        const teamService = new TeamKnowledgeService(db);
+        const multiAgentCoordinator = new MultiAgentCoordinator(db);
+        const { CollaborationRoutes } = await import('./worker/http/routes/CollaborationRoutes.js');
+        this.server.registerRoutes(new CollaborationRoutes(teamService, multiAgentCoordinator));
+
+        // Cross-Project Service
+        const { CrossProjectService } = await import('./promotion/CrossProjectService.js');
+        const crossProjectService = new CrossProjectService(db);
+        const { CrossProjectRoutes } = await import('./worker/http/routes/CrossProjectRoutes.js');
+        this.server.registerRoutes(new CrossProjectRoutes(crossProjectService));
+
+        // Active Learning
+        const { ActiveLearningService } = await import('./learning/ActiveLearningService.js');
+        const learningService = new ActiveLearningService(db);
+        const { LearningRoutes } = await import('./worker/http/routes/LearningRoutes.js');
+        this.server.registerRoutes(new LearningRoutes(learningService));
+
+        // Markdown Sync (bidirectional: export DB→files, import files→DB)
+        const { MarkdownExporter } = await import('./markdown-sync/MarkdownExporter.js');
+        const { MarkdownImporter } = await import('./markdown-sync/MarkdownImporter.js');
+        const mdOutputDir = path.join(dataDir, 'markdown');
+        const mdExporter = new MarkdownExporter(db, mdOutputDir);
+        const mdImporter = new MarkdownImporter(db, mdOutputDir);
+        const { MarkdownSyncRoutes } = await import('./worker/http/routes/MarkdownSyncRoutes.js');
+        this.server.registerRoutes(new MarkdownSyncRoutes(mdExporter, mdImporter));
+
+        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup, templates, audit, backup, diary, collaboration, cross-project, learning, markdown-sync)');
+
+        // Start periodic tasks for newly wired services
+        this.startBackupSchedule();
+        this.startCrossProjectDetection(crossProjectService);
       } catch (e) {
         logger.warn('WORKER', 'Agent Recall routes registration failed', {}, e as Error);
       }
@@ -589,6 +651,44 @@ export class WorkerService {
       this.initializationCompleteFlag = true;
       this.resolveInitialization();
       logger.info('SYSTEM', 'Core initialization complete (DB + search ready)');
+
+      // Start transcript file watcher (JSONL fallback for when hooks don't fire)
+      try {
+        const watchEnabled = (settings as any).TRANSCRIPT_WATCH_ENABLED !== false;
+        if (watchEnabled) {
+          const { TranscriptWatcher } = await import('./transcripts/watcher.js');
+          const { loadTranscriptWatchConfig, writeSampleConfig, DEFAULT_CONFIG_PATH } = await import('./transcripts/config.js');
+          const { setDedupChecker } = await import('./transcripts/claude-code-processor.js');
+          const { existsSync } = await import('fs');
+
+          // Inject dedup checker that uses the database
+          const store = this.dbManager.getSessionStore();
+          setDedupChecker((contentSessionId: string) => {
+            try {
+              const count = store.getPromptNumberFromUserPrompts(contentSessionId);
+              return count > 0;
+            } catch {
+              return false;
+            }
+          });
+
+          // Create default config if missing
+          if (!existsSync(DEFAULT_CONFIG_PATH)) {
+            writeSampleConfig();
+            logger.info('SYSTEM', 'Created default transcript-watch.json');
+          }
+
+          const config = loadTranscriptWatchConfig();
+          const { DEFAULT_STATE_PATH } = await import('./transcripts/config.js');
+          this.transcriptWatcher = new TranscriptWatcher(config, config.stateFile || DEFAULT_STATE_PATH);
+          this.transcriptWatcher.start();
+          logger.info('SYSTEM', `Transcript watcher started (${config.watches.length} watch targets)`);
+        }
+      } catch (err) {
+        logger.warn('SYSTEM', 'Transcript watcher startup failed (non-blocking)', {
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
 
       // Connect to MCP server
       const mcpServerPath = path.join(__dirname, 'mcp-server.cjs');
@@ -1118,6 +1218,58 @@ export class WorkerService {
   }
 
   /**
+   * Start automatic database backup schedule.
+   * Runs once at startup and then every 24 hours. Prunes backups older than 7 days.
+   */
+  private startBackupSchedule(): void {
+    if (!this.backupService) return;
+
+    // Startup backup
+    try {
+      const info = this.backupService.createBackup();
+      logger.info('BACKUP', 'Startup backup created', { path: info.path, size: info.sizeBytes });
+      const pruned = this.backupService.pruneOldBackups(7);
+      if (pruned > 0) {
+        logger.info('BACKUP', `Pruned ${pruned} old backups`);
+      }
+    } catch (error) {
+      logger.error('BACKUP', 'Startup backup failed (non-blocking)', {}, error as Error);
+    }
+
+    // Daily backup
+    this.backupInterval = setInterval(() => {
+      try {
+        if (!this.backupService) return;
+        this.backupService.createBackup();
+        this.backupService.pruneOldBackups(7);
+      } catch (error) {
+        logger.error('BACKUP', 'Scheduled backup failed (non-blocking)', {}, error as Error);
+      }
+    }, 24 * 60 * 60 * 1000);
+  }
+
+  /**
+   * Start cross-project pattern detection.
+   * Every 6 hours, detects patterns appearing in 2+ projects and auto-promotes high-confidence ones.
+   */
+  private startCrossProjectDetection(service: any): void {
+    this.crossProjectInterval = setInterval(() => {
+      try {
+        const patterns = service.detectGlobalPatterns();
+        const highConfidence = patterns.filter((p: any) => p.confidence >= 0.7);
+        for (const pattern of highConfidence) {
+          service.promoteToGlobal(pattern);
+        }
+        if (highConfidence.length > 0) {
+          logger.info('CROSS_PROJECT', `Auto-promoted ${highConfidence.length} high-confidence patterns`);
+        }
+      } catch (error) {
+        logger.error('CROSS_PROJECT', 'Pattern detection failed (non-blocking)', {}, error as Error);
+      }
+    }, 6 * 60 * 60 * 1000);
+  }
+
+  /**
    * Shutdown the worker service
    */
   async shutdown(): Promise<void> {
@@ -1137,6 +1289,24 @@ export class WorkerService {
     if (this.dataRetentionInterval) {
       clearInterval(this.dataRetentionInterval);
       this.dataRetentionInterval = null;
+    }
+
+    // Stop backup interval
+    if (this.backupInterval) {
+      clearInterval(this.backupInterval);
+      this.backupInterval = null;
+    }
+
+    // Stop cross-project detection interval
+    if (this.crossProjectInterval) {
+      clearInterval(this.crossProjectInterval);
+      this.crossProjectInterval = null;
+    }
+
+    // Stop markdown sync interval
+    if (this.markdownSyncInterval) {
+      clearInterval(this.markdownSyncInterval);
+      this.markdownSyncInterval = null;
     }
 
     await performGracefulShutdown({
