@@ -1222,7 +1222,11 @@ ${E.dim}No previous sessions found for this project yet.${E.reset}
         content_json = excluded.content_json,
         updated_at = excluded.updated_at,
         updated_at_epoch = excluded.updated_at_epoch
-    `).run("global","user",n,t,s,t,s)}insertFeedbackObservation(e,t){let s=new Date().toISOString(),n=Date.now();this.db.prepare(`
+    `).run("global","user",n,t,s,t,s)}ensureAutoMemorySession(){this.db.prepare(`
+      INSERT OR IGNORE INTO sdk_sessions
+        (content_session_id, memory_session_id, project, user_prompt, started_at, started_at_epoch, status)
+      VALUES ('auto-memory', 'auto-memory', 'system', 'Auto-imported memory files', datetime('now'), ?, 'completed')
+    `).run(Date.now())}insertFeedbackObservation(e,t){this.ensureAutoMemorySession();let s=new Date().toISOString(),n=Date.now();this.db.prepare(`
       INSERT INTO observations
         (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
          files_read, files_modified, prompt_number, discovery_tokens, content_hash,
