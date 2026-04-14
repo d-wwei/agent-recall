@@ -102,6 +102,7 @@ describe('GeminiAgent', () => {
 
     mockDbManager = {
       getSessionStore: () => mockSessionStore,
+      getSeekdbSync: () => null,  // SeekDB sync not available in tests
     } as unknown as DatabaseManager;
 
     const mockPendingMessageStore = {

@@ -50,6 +50,20 @@ function setupTestDb(): Database {
     )
   `);
 
+  // sdk_sessions table (needed by ensureAutoMemorySession for FK compliance)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sdk_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      content_session_id TEXT UNIQUE NOT NULL,
+      memory_session_id TEXT UNIQUE,
+      project TEXT NOT NULL,
+      user_prompt TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      started_at TEXT NOT NULL DEFAULT '',
+      started_at_epoch INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
   // observations table (minimal required columns)
   db.run(`
     CREATE TABLE IF NOT EXISTS observations (

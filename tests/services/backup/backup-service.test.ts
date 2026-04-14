@@ -240,9 +240,10 @@ describe('pruneOldBackups()', () => {
     expect(count).toBe(2);
   });
 
-  it('keeps backups within keepDays window', () => {
+  it('keeps backups within keepDays window', async () => {
     const old = service.createBackup();
     backdateFile(old.path, 10);
+    await new Promise(r => setTimeout(r, 5)); // Ensure unique timestamp for next backup
     const recent = service.createBackup();
     service.pruneOldBackups(7);
     expect(existsSync(old.path)).toBe(false);

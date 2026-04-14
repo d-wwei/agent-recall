@@ -98,6 +98,20 @@ function createTestDb(): Database {
     );
     CREATE INDEX idx_ck_project ON compiled_knowledge(project);
     CREATE INDEX idx_ck_topic ON compiled_knowledge(project, topic);
+
+    CREATE TABLE compilation_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project TEXT NOT NULL,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      observations_processed INTEGER NOT NULL DEFAULT 0,
+      pages_created INTEGER NOT NULL DEFAULT 0,
+      pages_updated INTEGER NOT NULL DEFAULT 0,
+      tokens_used INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'running',
+      error TEXT
+    );
   `);
 
   return db;

@@ -1,6 +1,6 @@
 {
   "name": "agent-recall",
-  "version": "1.0.0-alpha.1",
+  "version": "1.1.0-alpha.1",
   "description": "Persistent memory system for Claude Code - knows who it is, who you are, and what you were doing",
   "keywords": [
     "claude",

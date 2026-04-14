@@ -74,7 +74,10 @@ describe('ResponseProcessor', () => {
         storeObservations: mockStoreObservations,
         ensureMemorySessionIdRegistered: mock(() => {}),  // FK fix (Issue #846)
         getSessionById: mock(() => ({ memory_session_id: 'memory-session-456' })),  // FK fix (Issue #846)
+        getObservationsSinceEpoch: mock(() => []),
+        db: { prepare: () => ({ get: () => null, run: () => ({}) }) },  // For StructuredSummaryBuilder
       }),
+      getSeekdbSync: () => null,  // SeekDB sync not available in tests
     } as unknown as DatabaseManager;
 
     mockSessionManager = {

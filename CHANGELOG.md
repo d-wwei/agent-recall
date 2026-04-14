@@ -1,6 +1,38 @@
 # Changelog
 
-All notable changes to claude-mem.
+All notable changes to Agent Recall (forked from claude-mem).
+
+## [v1.1.0-alpha.1] - 2026-04-14
+
+### fix: repair 6 broken subsystems — audit score D→B (41%→79%)
+
+System audit revealed 6 subsystems that were built but never wired together. This release fixes all of them.
+
+#### P0: Knowledge Compilation (CRITICAL)
+- Fixed compilation trigger sending filesystem path instead of project name — GateKeeper now resolves project from `contentSessionId` via DB lookup
+- Loaded real settings from `SettingsDefaultsManager` instead of hardcoded values
+- Wired `CompilationLogger` into `CompilationEngine` to track compilation runs
+- Added diagnostic logging to GateKeeper gates
+
+#### P1: SeekDB Vector Sync (HIGH)
+- Wired `seekdbSync.syncObservation()` and `seekdbSync.syncSummary()` into ResponseProcessor after DB storage
+- Fixed SeekDB initialization by adding `DATA_DIR` fallback in DatabaseManager
+- Added `/api/admin/backfill-seekdb` endpoint for one-time bulk sync
+
+#### P2: Entity Extraction (HIGH)
+- Fixed automatically by P0 — entity extraction runs inside compilation pipeline
+
+#### P3: Session Summary Coverage (HIGH)
+- Added summary backfill in `handleCompleteByClaudeId` — sessions that complete without summaries get auto-generated ones from DB data (user prompts + observations)
+
+#### P5: Diary System (LOW)
+- Added diary entry creation on session completion in SessionRoutes
+- Wired `AutoMemorySync` into worker startup to sync `~/.claude/memory/*.md` files
+- Fixed FK constraint in `AutoMemorySync` by creating synthetic `auto-memory` session
+
+#### Infrastructure
+- Added `DIARY` component type to logger
+- Updated 5 test files to accommodate new mocks and table schemas
 
 ## [v10.6.2] - 2026-03-21
 
