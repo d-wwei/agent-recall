@@ -14,6 +14,7 @@
 
 import { Database } from 'bun:sqlite';
 import { LockManager } from '../concurrency/LockManager.js';
+import { logger } from '../../utils/logger.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -64,33 +65,40 @@ export class GateKeeper {
    */
   check(project: string): GateCheckResult {
     // Gate 1 — Feature gate
-    if (this.settings['AGENT_RECALL_COMPILATION_ENABLED'] === 'false') {
+    const featureFlag = this.settings['AGENT_RECALL_COMPILATION_ENABLED'];
+    if (featureFlag === 'false') {
+      logger.info('COMPILATION', 'Gate BLOCKED: feature_gate', { project, featureFlag });
       return { canProceed: false, blockedBy: 'feature_gate' };
     }
 
     // Gate 2 — Time gate (minimum 24 h between compilations)
     const now = Date.now();
     if (now - this.lastCompilationTime < COMPILATION_INTERVAL_MS) {
+      logger.info('COMPILATION', 'Gate BLOCKED: time_gate', { project, lastCompilation: this.lastCompilationTime, elapsed: now - this.lastCompilationTime });
       return { canProceed: false, blockedBy: 'time_gate' };
     }
 
     // Gate 3 — Scan throttle (minimum 10 min between gate checks)
     if (now - this.lastScanTime < SCAN_THROTTLE_MS) {
+      logger.info('COMPILATION', 'Gate BLOCKED: scan_throttle', { project, lastScan: this.lastScanTime, elapsed: now - this.lastScanTime });
       return { canProceed: false, blockedBy: 'scan_throttle' };
     }
 
     // Gate 4 — Session gate (≥ 5 new sessions since last compilation)
     const newSessionCount = this.countNewSessions(project);
     if (newSessionCount < MIN_NEW_SESSIONS) {
+      logger.info('COMPILATION', 'Gate BLOCKED: session_gate', { project, newSessionCount, required: MIN_NEW_SESSIONS });
       return { canProceed: false, blockedBy: 'session_gate' };
     }
 
     // Gate 5 — Lock gate (no concurrent compilation in progress)
     const acquired = this.lockManager.acquire(COMPILATION_LOCK);
     if (!acquired) {
+      logger.info('COMPILATION', 'Gate BLOCKED: lock_gate', { project });
       return { canProceed: false, blockedBy: 'lock_gate' };
     }
 
+    logger.info('COMPILATION', 'All gates PASSED', { project, newSessionCount });
     return { canProceed: true };
   }
 

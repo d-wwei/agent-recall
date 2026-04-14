@@ -241,7 +241,19 @@ export class AutoMemorySync {
   /**
    * Insert a feedback observation into observations table with confidence='high'.
    */
+  /**
+   * Ensure the synthetic 'auto-memory' session exists for FK compliance.
+   */
+  private ensureAutoMemorySession(): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO sdk_sessions
+        (content_session_id, memory_session_id, project, user_prompt, started_at, started_at_epoch, status)
+      VALUES ('auto-memory', 'auto-memory', 'system', 'Auto-imported memory files', datetime('now'), ?, 'completed')
+    `).run(Date.now());
+  }
+
   private insertFeedbackObservation(title: string | undefined, narrative: string): void {
+    this.ensureAutoMemorySession();
     const now = new Date().toISOString();
     const nowEpoch = Date.now();
 

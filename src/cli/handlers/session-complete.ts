@@ -22,7 +22,7 @@ export const sessionCompleteHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
-    const { sessionId, cwd } = input;
+    const { sessionId } = input;
 
     if (!sessionId) {
       logger.warn('HOOK', 'session-complete: Missing sessionId, skipping');
@@ -32,8 +32,6 @@ export const sessionCompleteHandler: EventHandler = {
     logger.info('HOOK', '→ session-complete: Removing session from active map', {
       contentSessionId: sessionId
     });
-
-    const projectPath = cwd ?? process.cwd();
 
     try {
       // Call the session complete endpoint by contentSessionId
@@ -61,12 +59,13 @@ export const sessionCompleteHandler: EventHandler = {
       });
     }
 
-    // Fire compilation check (non-blocking)
+    // Fire compilation check (non-blocking) — send contentSessionId so the worker
+    // can look up the actual project name from the database (not the cwd path)
     const port = getWorkerPort();
     fetch(`http://localhost:${port}/api/compilation/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project: projectPath }),
+      body: JSON.stringify({ contentSessionId: sessionId }),
     }).catch(() => {});
 
     return { continue: true, suppressOutput: true };

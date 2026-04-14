@@ -12,7 +12,7 @@ import { SessionStore } from '../sqlite/SessionStore.js';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { SeekdbSync } from '../sync/SeekdbSync.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
-import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { USER_SETTINGS_PATH, DATA_DIR } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import type { DBSession } from '../worker-types.js';
 
@@ -35,7 +35,7 @@ export class DatabaseManager {
     if (vectorBackend === 'seekdb') {
       // Embedded vector search via seekdb (default, no external deps)
       try {
-        const dataDir = settings.CLAUDE_MEM_DATA_DIR;
+        const dataDir = settings.CLAUDE_MEM_DATA_DIR || DATA_DIR;
         this.seekdbSync = new SeekdbSync('agent-recall', dataDir);
         await this.seekdbSync.initialize();
         logger.info('DB', 'SeekdbSync initialized (embedded vector search)');

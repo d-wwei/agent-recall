@@ -22,6 +22,7 @@ import { GatherStage } from './stages/GatherStage.js';
 import { ConsolidateStage } from './stages/ConsolidateStage.js';
 import { PruneStage } from './stages/PruneStage.js';
 import { EntityExtractor } from '../knowledge-graph/EntityExtractor.js';
+import { CompilationLogger } from './CompilationLogger.js';
 import type { CompilationContext, CompilationResult } from './types.js';
 
 export class CompilationEngine {
@@ -53,6 +54,9 @@ export class CompilationEngine {
     if (!gate.canProceed) {
       return null;
     }
+
+    const compilationLogger = new CompilationLogger(this.db);
+    const logId = compilationLogger.startLog(project);
 
     try {
       const ctx: CompilationContext = {
@@ -104,10 +108,19 @@ export class CompilationEngine {
       // 6. Record completion
       this.gateKeeper.recordCompilationTime();
 
+      // Log the compilation run
+      compilationLogger.completeLog(logId, {
+        observationsProcessed: result.observationsProcessed,
+        pagesCreated: result.pagesCreated,
+        pagesUpdated: result.pagesUpdated,
+        tokensUsed: 0,
+      });
+
       return result;
     } catch (err) {
       // Always release the lock on failure
       this.gateKeeper.recordCompilationTime();
+      compilationLogger.failLog(logId, (err as Error).message);
       throw err;
     }
   }

@@ -657,16 +657,83 @@ export class SessionRoutes extends BaseRouteHandler {
 
     res.json({ status: 'completed', sessionDbId });
 
-    // Non-blocking compaction verification (quality signal)
+    // Non-blocking: backfill summary if missing, then verify compaction
     setImmediate(async () => {
       try {
-        const { CompactionVerifier } = await import('../../../compaction/CompactionVerifier.js');
-        const verifier = new CompactionVerifier(store.db);
-
         const session = store.db.prepare(
           'SELECT memory_session_id, project FROM sdk_sessions WHERE id = ?'
         ).get(sessionDbId) as { memory_session_id: string | null; project: string } | undefined;
         if (!session?.memory_session_id) return;
+
+        // Backfill summary if missing (catches sessions where stop hook didn't fire or agent didn't finish)
+        const existingSummary = store.db.prepare(
+          'SELECT id FROM session_summaries WHERE memory_session_id = ? LIMIT 1'
+        ).get(session.memory_session_id) as { id: number } | undefined;
+
+        if (!existingSummary) {
+          // Build a basic summary from available DB data
+          const prompts = store.db.prepare(
+            'SELECT prompt_text FROM user_prompts WHERE content_session_id = ? ORDER BY prompt_number ASC LIMIT 5'
+          ).all(contentSessionId) as { prompt_text: string }[];
+
+          const observations = store.db.prepare(
+            'SELECT title, narrative, type FROM observations WHERE memory_session_id = ? ORDER BY created_at_epoch ASC LIMIT 10'
+          ).all(session.memory_session_id) as { title: string; narrative: string; type: string }[];
+
+          if (prompts.length > 0 || observations.length > 0) {
+            const request = prompts.map(p => p.prompt_text).join('; ').slice(0, 500) || 'No prompt recorded';
+            const completed = observations
+              .map(o => `[${o.type}] ${o.title}`)
+              .join('; ')
+              .slice(0, 500) || 'No observations recorded';
+            const learned = observations
+              .filter(o => o.narrative)
+              .map(o => o.narrative)
+              .join('; ')
+              .slice(0, 500) || '';
+
+            store.storeSummary(session.memory_session_id, session.project, {
+              request,
+              investigated: '',
+              learned,
+              completed,
+              next_steps: '',
+              notes: '[auto-backfilled at session complete]',
+            });
+            logger.info('SESSION', 'Backfilled missing summary', { contentSessionId, sessionDbId });
+          }
+        }
+
+        // Create diary entry for this session (non-blocking)
+        try {
+          const existingDiary = store.db.prepare(
+            'SELECT id FROM agent_diary WHERE memory_session_id = ? LIMIT 1'
+          ).get(session.memory_session_id) as { id: number } | undefined;
+
+          if (!existingDiary) {
+            // Get the summary (either existing or just backfilled)
+            const summaryRow = store.db.prepare(
+              'SELECT request, completed FROM session_summaries WHERE memory_session_id = ? LIMIT 1'
+            ).get(session.memory_session_id) as { request: string; completed: string } | undefined;
+
+            const diaryText = summaryRow
+              ? `Session: ${summaryRow.request}. Completed: ${summaryRow.completed}`.slice(0, 1000)
+              : `Session completed (no summary available)`;
+
+            store.db.prepare(
+              'INSERT INTO agent_diary (memory_session_id, project, entry) VALUES (?, ?, ?)'
+            ).run(session.memory_session_id, session.project, diaryText);
+            logger.debug('DIARY', 'Created diary entry for session', { contentSessionId });
+          }
+        } catch (diaryErr) {
+          logger.debug('DIARY', 'Diary entry creation failed (non-blocking)', {
+            error: diaryErr instanceof Error ? diaryErr.message : String(diaryErr)
+          });
+        }
+
+        // Compaction verification (quality signal)
+        const { CompactionVerifier } = await import('../../../compaction/CompactionVerifier.js');
+        const verifier = new CompactionVerifier(store.db);
 
         if (verifier.shouldSkipVerification(session.memory_session_id)) return;
 
@@ -679,7 +746,7 @@ export class SessionRoutes extends BaseRouteHandler {
           });
         }
       } catch (err) {
-        logger.debug('COMPACTION', 'Verification failed (non-blocking)', {
+        logger.debug('SESSION', 'Post-complete tasks failed (non-blocking)', {
           error: err instanceof Error ? err.message : String(err)
         });
       }
