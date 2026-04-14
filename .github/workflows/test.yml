@@ -47,6 +47,9 @@ jobs:
           --path-ignore-patterns "**/seekdb-poc*"
           --path-ignore-patterns "**/backup-service*"
 
+      - name: Check for dead service exports
+        run: bun scripts/check-dead-exports.ts
+
       - name: Run search quality benchmark
         run: bun scripts/benchmark-ci.ts
 
