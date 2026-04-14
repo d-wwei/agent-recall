@@ -10,6 +10,7 @@ import express, { Request, Response } from 'express';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { DoctorService } from '../../../doctor/DoctorService.js';
 import type { DatabaseManager } from '../../DatabaseManager.js';
+import { logger } from '../../../../utils/logger.js';
 
 export class DoctorRoutes extends BaseRouteHandler {
   constructor(private dbManager: DatabaseManager) {
@@ -23,6 +24,7 @@ export class DoctorRoutes extends BaseRouteHandler {
   }
 
   private handleFull(_req: Request, res: Response): void {
+    logger.info('DOCTOR', 'Running full audit');
     const db = this.dbManager.getSessionStore().db;
     const service = new DoctorService(db);
     const report = service.runFull();
