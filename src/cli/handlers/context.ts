@@ -67,9 +67,21 @@ export const contextHandler: EventHandler = {
         colorResponse?.ok ? colorResponse.text() : Promise.resolve('')
       ]);
 
-      const additionalContext = contextResult.trim();
+      let additionalContext = contextResult.trim();
       const coloredTimeline = colorResult.trim();
       const platform = input.platform;
+
+      // Quick health check — inject warning if CRITICAL expectations fail
+      try {
+        const quickRes = await workerHttpRequest('/api/doctor/quick');
+        if (quickRes.ok) {
+          const quickData = await quickRes.json() as { critical_failures?: string[] };
+          if (quickData.critical_failures && quickData.critical_failures.length > 0) {
+            const failIds = quickData.critical_failures.join(', ');
+            additionalContext += `\n[Agent Recall Health Warning] CRITICAL failures detected: ${failIds}. Run agent-recall doctor for details.`;
+          }
+        }
+      } catch { /* silent — zero noise on failure */ }
 
       // Use colored timeline for display if available, otherwise fall back to 
       // plain markdown context (especially useful for platforms like Gemini 

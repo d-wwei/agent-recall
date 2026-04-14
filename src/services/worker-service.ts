@@ -682,6 +682,10 @@ export class WorkerService {
         const { DiaryRoutes } = await import('./worker/http/routes/DiaryRoutes.js');
         this.server.registerRoutes(new DiaryRoutes(diaryService));
 
+        // Doctor (health audit)
+        const { DoctorRoutes } = await import('./worker/http/routes/DoctorRoutes.js');
+        this.server.registerRoutes(new DoctorRoutes(this.dbManager));
+
         // Team Knowledge + Multi-Agent Coordinator
         const { TeamKnowledgeService } = await import('./collaboration/TeamKnowledgeService.js');
         const { MultiAgentCoordinator } = await import('./collaboration/MultiAgentCoordinator.js');
@@ -711,7 +715,7 @@ export class WorkerService {
         const { MarkdownSyncRoutes } = await import('./worker/http/routes/MarkdownSyncRoutes.js');
         this.server.registerRoutes(new MarkdownSyncRoutes(mdExporter, mdImporter));
 
-        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup, templates, audit, backup, diary, collaboration, cross-project, learning, markdown-sync)');
+        logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup, templates, audit, backup, diary, doctor, collaboration, cross-project, learning, markdown-sync)');
 
         // Auto-sync Claude Code memory files on startup
         try {

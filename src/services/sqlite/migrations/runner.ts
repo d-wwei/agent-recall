@@ -57,6 +57,7 @@ export class MigrationRunner {
     this.addEvidenceTimelineColumn(); // migration 43
     this.addStructuredSummaryColumn(); // migration 44
     this.addInterruptedSessionStatus(); // migration 45
+    this.createDoctorReportsTable();    // migration 46
   }
 
   /**
@@ -1593,5 +1594,30 @@ export class MigrationRunner {
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(45, new Date().toISOString());
     logger.debug('DB', 'Added interrupted status to sdk_sessions CHECK constraint');
+  }
+
+  /**
+   * Create doctor_reports table for storing health audit results (migration 46)
+   */
+  private createDoctorReportsTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(46);
+    if (applied) return;
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS doctor_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        score REAL NOT NULL,
+        grade TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'full',
+        results TEXT NOT NULL,
+        critical_failures TEXT,
+        recommendations TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_doctor_reports_created ON doctor_reports(created_at DESC)');
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(46, new Date().toISOString());
+    logger.debug('DB', 'Created doctor_reports table');
   }
 }
