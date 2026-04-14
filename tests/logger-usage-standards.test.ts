@@ -48,6 +48,13 @@ const EXCLUDED_PATTERNS = [
   /services\/compilation\/LLMCompiler\.ts$/,  // HTTP client — no logger dependency needed
   /services\/compilation\/ResponseParser\.ts$/, // Pure parsing algorithm
   /services\/compilation\/prompts\.ts$/,  // Pure string templates
+  /cli\/commands\//,  // CLI commands use console.log for user-visible terminal output
+  /worker\/http\/routes\/CollaborationRoutes\.ts$/,  // Thin route handler delegating to services
+  /worker\/http\/routes\/DiaryRoutes\.ts$/,  // Thin route handler delegating to services
+  /worker\/http\/routes\/MarkdownSyncRoutes\.ts$/,  // Thin route handler delegating to services
+  /worker\/http\/routes\/LearningRoutes\.ts$/,  // Thin route handler delegating to services
+  /worker\/http\/routes\/BackupRoutes\.ts$/,  // Thin route handler delegating to services
+  /worker\/http\/routes\/CrossProjectRoutes\.ts$/,  // Thin route handler delegating to services
 ];
 
 // Files that should always use logger (core business logic)

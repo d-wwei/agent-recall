@@ -297,38 +297,25 @@ export class PendingMessageStore {
   }
 
   /**
-   * Handle all pending/processing messages when SDK session is terminated.
-   * Messages under retry limit are reset to 'pending' for future retry.
-   * Messages at or over retry limit are marked permanently 'failed'.
-   * @returns Total number of messages affected
+   * Mark all pending and processing messages for a session as failed (abandoned).
+   * Used when SDK session is terminated and no fallback agent is available:
+   * prevents the session from appearing in getSessionsWithPendingMessages forever.
+   * Unlike markSessionMessagesFailed (crash recovery with retry), this is final —
+   * the session is dead, so no retry logic applies.
+   * @returns Number of messages marked failed
    */
   markAllSessionMessagesAbandoned(sessionDbId: number): number {
     const now = Date.now();
-
-    // Messages under retry limit: reset to pending (will be retried on next startup)
-    const retryStmt = this.db.prepare(`
-      UPDATE pending_messages
-      SET status = 'pending', retry_count = retry_count + 1,
-          started_processing_at_epoch = NULL
-      WHERE session_db_id = ? AND status IN ('pending', 'processing')
-        AND retry_count < ?
-    `);
-    const retried = retryStmt.run(sessionDbId, this.maxRetries);
-
-    // Messages at retry limit: mark permanently failed
-    const failStmt = this.db.prepare(`
+    const stmt = this.db.prepare(`
       UPDATE pending_messages
       SET status = 'failed', failed_at_epoch = ?
       WHERE session_db_id = ? AND status IN ('pending', 'processing')
-        AND retry_count >= ?
     `);
-    const failed = failStmt.run(now, sessionDbId, this.maxRetries);
-
-    if (retried.changes > 0 || failed.changes > 0) {
-      logger.info('QUEUE', `ABANDONED_RECOVERY | sessionDbId=${sessionDbId} | retried=${retried.changes} | permanentlyFailed=${failed.changes}`);
+    const result = stmt.run(now, sessionDbId);
+    if (result.changes > 0) {
+      logger.info('QUEUE', `ABANDONED | sessionDbId=${sessionDbId} | count=${result.changes} | all marked failed (session terminated)`);
     }
-
-    return retried.changes + failed.changes;
+    return result.changes;
   }
 
   /**
