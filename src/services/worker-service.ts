@@ -1154,10 +1154,17 @@ export class WorkerService {
 
     if (orphanedSessionIds.length === 0) return result;
 
-    logger.info('SYSTEM', `Processing up to ${sessionLimit} of ${orphanedSessionIds.length} pending session queues`);
+    // Limit concurrent session processing to pool size to prevent pool exhaustion deadlock.
+    // Starting more sessions than pool slots causes all generators to timeout waiting for slots.
+    const maxConcurrent = parseInt(
+      SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH).CLAUDE_MEM_MAX_CONCURRENT_AGENTS, 10
+    ) || 2;
+    const effectiveLimit = Math.min(sessionLimit, maxConcurrent);
+
+    logger.info('SYSTEM', `Processing up to ${effectiveLimit} of ${orphanedSessionIds.length} pending session queues (pool size: ${maxConcurrent})`);
 
     for (const sessionDbId of orphanedSessionIds) {
-      if (result.sessionsStarted >= sessionLimit) break;
+      if (result.sessionsStarted >= effectiveLimit) break;
 
       try {
         const existingSession = this.sessionManager.getSession(sessionDbId);
