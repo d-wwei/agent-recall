@@ -2,8 +2,12 @@ import { Database } from './sqlite-compat.js';
 import type { PendingMessage } from '../worker-types.js';
 import { logger } from '../../utils/logger.js';
 
-/** Messages processing longer than this are considered stale and reset to pending by self-healing */
-const STALE_PROCESSING_THRESHOLD_MS = 60_000;
+/**
+ * Messages processing longer than this are considered stale and reset to pending by self-healing.
+ * Set to 45s (not 60s) to avoid collision with the 60s pool slot timeout in ProcessRegistry.
+ * This ensures stale messages are recovered BEFORE the pool timeout triggers a cascade failure.
+ */
+const STALE_PROCESSING_THRESHOLD_MS = 45_000;
 
 /**
  * Persistent pending message record from database
@@ -258,41 +262,73 @@ export class PendingMessageStore {
   }
 
   /**
-   * Mark all processing messages for a session as failed
-   * Used in error recovery when session generator crashes
-   * @returns Number of messages marked failed
+   * Handle processing messages when session generator crashes.
+   * Messages under retry limit are reset to 'pending' for automatic retry.
+   * Messages at or over retry limit are marked permanently 'failed'.
+   * @returns Total number of messages affected
    */
   markSessionMessagesFailed(sessionDbId: number): number {
     const now = Date.now();
 
-    // Atomic update - all processing messages for session → failed
-    // Note: This bypasses retry logic since generator failures are session-level,
-    // not message-level. Individual message failures use markFailed() instead.
-    const stmt = this.db.prepare(`
+    // Messages under retry limit: reset to pending (will be retried automatically)
+    const retryStmt = this.db.prepare(`
+      UPDATE pending_messages
+      SET status = 'pending', retry_count = retry_count + 1,
+          started_processing_at_epoch = NULL
+      WHERE session_db_id = ? AND status = 'processing'
+        AND retry_count < ?
+    `);
+    const retried = retryStmt.run(sessionDbId, this.maxRetries);
+
+    // Messages at retry limit: mark permanently failed
+    const failStmt = this.db.prepare(`
       UPDATE pending_messages
       SET status = 'failed', failed_at_epoch = ?
       WHERE session_db_id = ? AND status = 'processing'
+        AND retry_count >= ?
     `);
+    const failed = failStmt.run(now, sessionDbId, this.maxRetries);
 
-    const result = stmt.run(now, sessionDbId);
-    return result.changes;
+    if (retried.changes > 0 || failed.changes > 0) {
+      logger.info('QUEUE', `CRASH_RECOVERY | sessionDbId=${sessionDbId} | retried=${retried.changes} | permanentlyFailed=${failed.changes}`);
+    }
+
+    return retried.changes + failed.changes;
   }
 
   /**
-   * Mark all pending and processing messages for a session as failed (abandoned).
-   * Used when SDK session is terminated and no fallback agent is available:
-   * prevents the session from appearing in getSessionsWithPendingMessages forever.
-   * @returns Number of messages marked failed
+   * Handle all pending/processing messages when SDK session is terminated.
+   * Messages under retry limit are reset to 'pending' for future retry.
+   * Messages at or over retry limit are marked permanently 'failed'.
+   * @returns Total number of messages affected
    */
   markAllSessionMessagesAbandoned(sessionDbId: number): number {
     const now = Date.now();
-    const stmt = this.db.prepare(`
+
+    // Messages under retry limit: reset to pending (will be retried on next startup)
+    const retryStmt = this.db.prepare(`
+      UPDATE pending_messages
+      SET status = 'pending', retry_count = retry_count + 1,
+          started_processing_at_epoch = NULL
+      WHERE session_db_id = ? AND status IN ('pending', 'processing')
+        AND retry_count < ?
+    `);
+    const retried = retryStmt.run(sessionDbId, this.maxRetries);
+
+    // Messages at retry limit: mark permanently failed
+    const failStmt = this.db.prepare(`
       UPDATE pending_messages
       SET status = 'failed', failed_at_epoch = ?
       WHERE session_db_id = ? AND status IN ('pending', 'processing')
+        AND retry_count >= ?
     `);
-    const result = stmt.run(now, sessionDbId);
-    return result.changes;
+    const failed = failStmt.run(now, sessionDbId, this.maxRetries);
+
+    if (retried.changes > 0 || failed.changes > 0) {
+      logger.info('QUEUE', `ABANDONED_RECOVERY | sessionDbId=${sessionDbId} | retried=${retried.changes} | permanentlyFailed=${failed.changes}`);
+    }
+
+    return retried.changes + failed.changes;
   }
 
   /**
@@ -443,6 +479,26 @@ export class PendingMessageStore {
     `);
     const result = stmt.get(messageId) as { session_db_id: number; content_session_id: string } | undefined;
     return result ? { sessionDbId: result.session_db_id, contentSessionId: result.content_session_id } : null;
+  }
+
+  /**
+   * Reset all failed messages back to pending for reprocessing.
+   * Used for bulk recovery after generator pool exhaustion or crash cascades.
+   * Resets retry_count so messages get a fresh chance.
+   * @returns Number of messages reset
+   */
+  retryAllFailed(): number {
+    const stmt = this.db.prepare(`
+      UPDATE pending_messages
+      SET status = 'pending', retry_count = 0,
+          started_processing_at_epoch = NULL, failed_at_epoch = NULL
+      WHERE status = 'failed'
+    `);
+    const result = stmt.run();
+    if (result.changes > 0) {
+      logger.info('QUEUE', `RETRY_ALL_FAILED | count=${result.changes} | reset to pending for reprocessing`);
+    }
+    return result.changes;
   }
 
   /**

@@ -88,6 +88,7 @@ const POST_ENDPOINTS = [
   '/api/sessions/observations',
   '/api/sessions/summarize',
   '/api/sessions/complete',
+  '/api/pending-queue/retry-failed',
 ];
 
 describe('Endpoint Smoke Test', () => {

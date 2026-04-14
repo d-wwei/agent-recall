@@ -8,6 +8,7 @@
 
 import { Database } from 'bun:sqlite';
 import { logger } from '../../utils/logger.js';
+import { extractFilesFromRawMessages } from './RawContextFallback.js';
 
 export interface TaskHistoryItem {
   prompt: string;          // cleaned user prompt (first 100 chars)
@@ -219,6 +220,31 @@ export class CheckpointService {
       project, sessionId, observations,
       userPrompts.length > 0 ? userPrompts[userPrompts.length - 1]?.prompt_text || null : null
     );
+
+    // Fallback: when observations are empty (SDK Agent pipeline down),
+    // extract file info directly from raw pending_messages
+    if (observations.length === 0 && base.filesModified.length === 0) {
+      try {
+        const rawMessages = this.db.prepare(`
+          SELECT pm.tool_name, pm.tool_input, pm.content_session_id
+          FROM pending_messages pm
+          WHERE pm.content_session_id = ?
+            AND pm.message_type = 'observation'
+          ORDER BY pm.created_at_epoch ASC
+        `).all(sessionId) as { tool_name: string | null; tool_input: string | null; content_session_id: string }[];
+
+        if (rawMessages.length > 0) {
+          const extracted = extractFilesFromRawMessages(rawMessages);
+          base.filesModified = extracted.filesModified;
+          base.filesRead = extracted.filesRead;
+          base.lastToolAction = extracted.lastAction;
+          base.observationCount = rawMessages.length;
+          logger.debug('CHECKPOINT', `Fallback: extracted ${extracted.filesModified.length} files from ${rawMessages.length} raw messages`);
+        }
+      } catch {
+        // Non-blocking: raw message extraction failure shouldn't break checkpoint
+      }
+    }
 
     // 1. currentTask: extract from the LATEST user prompt with cleaning
     if (userPrompts.length > 0) {

@@ -55,6 +55,7 @@ export class DataRoutes extends BaseRouteHandler {
     // Pending queue management endpoints
     app.get('/api/pending-queue', this.handleGetPendingQueue.bind(this));
     app.post('/api/pending-queue/process', this.handleProcessPendingQueue.bind(this));
+    app.post('/api/pending-queue/retry-failed', this.handleRetryFailedQueue.bind(this));
     app.delete('/api/pending-queue/failed', this.handleClearFailedQueue.bind(this));
     app.delete('/api/pending-queue/all', this.handleClearAllQueue.bind(this));
 
@@ -441,6 +442,31 @@ export class DataRoutes extends BaseRouteHandler {
     res.json({
       success: true,
       ...result
+    });
+  });
+
+  /**
+   * Retry all failed messages — reset to pending for reprocessing.
+   * POST /api/pending-queue/retry-failed
+   * Used for bulk recovery after generator pool exhaustion.
+   */
+  private handleRetryFailedQueue = this.wrapHandler((req: Request, res: Response): void => {
+    const { PendingMessageStore } = require('../../../sqlite/PendingMessageStore.js');
+    const pendingStore = new PendingMessageStore(this.dbManager.getSessionStore().db, 3);
+
+    const retriedCount = pendingStore.retryAllFailed();
+
+    logger.info('QUEUE', 'Retried all failed queue messages', { retriedCount });
+
+    AuditService.log(this.dbManager.getSessionStore().db, {
+      action: 'retry_failed_messages',
+      details: { queue: 'retry-failed' },
+      record_count: retriedCount,
+    });
+
+    res.json({
+      success: true,
+      retriedCount
     });
   });
 

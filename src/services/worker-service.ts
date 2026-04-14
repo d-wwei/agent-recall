@@ -552,6 +552,22 @@ export class WorkerService {
         });
       }
 
+      // Clean up old completed active_tasks entries (prevent unbounded table growth)
+      try {
+        const ACTIVE_TASKS_MAX_AGE_DAYS = 7;
+        const cutoffEpoch = Date.now() - (ACTIVE_TASKS_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
+        const cleanupResult = this.dbManager.getSessionStore().db.prepare(
+          "DELETE FROM active_tasks WHERE status = 'completed' AND updated_at_epoch < ?"
+        ).run(cutoffEpoch);
+        if (cleanupResult.changes > 0) {
+          logger.info('SYSTEM', `Cleaned up ${cleanupResult.changes} old completed active_tasks entries (>7 days)`);
+        }
+      } catch (err) {
+        logger.debug('SYSTEM', 'active_tasks cleanup failed (non-blocking)', {
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
+
       // Initialize search services
       const formattingService = new FormattingService();
       const timelineService = new TimelineService();
@@ -740,10 +756,24 @@ export class WorkerService {
       logger.success('WORKER', 'MCP server connected');
 
       // Start orphan reaper to clean up zombie processes (Issue #737)
+      // Cross-checks both in-memory sessions AND database status to avoid missing orphans
       this.stopOrphanReaper = startOrphanReaper(() => {
         const activeIds = new Set<number>();
+        // In-memory sessions: definitely active
         for (const [id] of this.sessionManager['sessions']) {
           activeIds.add(id);
+        }
+        // DB cross-check: also include sessions marked 'active' in database
+        // (may not be in memory yet if worker just restarted)
+        try {
+          const dbActive = this.dbManager.getSessionStore().db.prepare(
+            "SELECT id FROM sdk_sessions WHERE status = 'active'"
+          ).all() as { id: number }[];
+          for (const row of dbActive) {
+            activeIds.add(row.id);
+          }
+        } catch {
+          // Non-blocking: if DB query fails, fall back to memory-only
         }
         return activeIds;
       });
@@ -1098,21 +1128,15 @@ export class WorkerService {
 
         sessionStore.db.prepare(`
           UPDATE sdk_sessions
-          SET status = 'failed', completed_at_epoch = ?
+          SET status = 'interrupted', completed_at_epoch = ?
           WHERE id IN (${placeholders})
         `).run(Date.now(), ...ids);
 
-        logger.info('SYSTEM', `Marked ${ids.length} stale sessions as failed`);
+        logger.info('SYSTEM', `Marked ${ids.length} stale sessions as interrupted (orphaned >6h)`);
 
-        const msgResult = sessionStore.db.prepare(`
-          UPDATE pending_messages
-          SET status = 'failed', failed_at_epoch = ?
-          WHERE status = 'pending'
-          AND session_db_id IN (${placeholders})
-        `).run(Date.now(), ...ids);
-
-        if (msgResult.changes > 0) {
-          logger.info('SYSTEM', `Marked ${msgResult.changes} pending messages from stale sessions as failed`);
+        // Use retry-aware logic: messages under retry limit get another chance
+        for (const id of ids) {
+          pendingStore.markSessionMessagesFailed(id);
         }
       }
     } catch (error) {

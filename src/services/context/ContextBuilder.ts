@@ -493,9 +493,68 @@ export async function generateContext(
       logger.debug('CONTEXT', 'Persona query skipped (tables may not exist yet)', {}, e as Error);
     }
 
-    // Handle empty state (but still show persona if it exists)
-    if (observations.length === 0 && summaries.length === 0 && !persona?.agent_soul?.name) {
-      return renderEmptyState(project, useColors, bootstrapStatus);
+    // Load checkpoint early — needed by both fallback path and normal path
+    let checkpoint: Checkpoint | null = null;
+    try {
+      const checkpointService = new CheckpointService(db.db);
+      checkpoint = checkpointService.getLatestCheckpoint(project);
+    } catch {
+      // Non-blocking: checkpoint loading failure shouldn't break context generation
+    }
+
+    // Handle empty state — try raw context fallback before giving up
+    if (observations.length === 0 && summaries.length === 0) {
+      // When SDK Agent pipeline is down, observations are empty but raw data
+      // (pending_messages, user_prompts) may exist. Build context from those.
+      try {
+        const { RawContextFallback } = await import('../recovery/RawContextFallback.js');
+        const fallback = new RawContextFallback(db.db);
+        const rawContext = fallback.buildFallbackContext(project);
+
+        if (rawContext && rawContext.hasData) {
+          const output: string[] = [];
+
+          // Still render persona if available
+          if (persona) {
+            output.push(...renderPersona(persona, useColors));
+          }
+
+          // Render raw fallback context
+          if (useColors) {
+            output.push(`\x1b[33m\x1b[1m> Session Recovery (from unprocessed data — ${rawContext.messageCount} pending observations)\x1b[0m`);
+          } else {
+            output.push(`> **Session Recovery** (from unprocessed data — ${rawContext.messageCount} pending observations)`);
+          }
+
+          if (rawContext.userRequests.length > 0) {
+            output.push(`> Recent requests: ${rawContext.userRequests.slice(0, 3).join('; ')}`);
+          }
+          if (rawContext.filesModified.length > 0) {
+            output.push(`> Files modified: ${rawContext.filesModified.slice(0, 8).join(', ')}`);
+          }
+          if (rawContext.filesRead.length > 0) {
+            output.push(`> Files read: ${rawContext.filesRead.slice(0, 5).join(', ')}`);
+          }
+          if (rawContext.lastAction) {
+            output.push(`> Last action: ${rawContext.lastAction}`);
+          }
+          output.push('');
+
+          // Also render checkpoint if available
+          if (checkpoint) {
+            output.push(`> **Checkpoint:** ${checkpoint.resumeHint || checkpoint.currentTask}`);
+            output.push('');
+          }
+
+          return output.join('\n').trimEnd();
+        }
+      } catch {
+        // Non-blocking: fallback failure should not break context generation
+      }
+
+      if (!persona?.agent_soul?.name) {
+        return renderEmptyState(project, useColors, bootstrapStatus);
+      }
     }
 
     // Agent Recall: Completeness/staleness hints (L1 — after active task, before timeline)
@@ -552,15 +611,6 @@ export async function generateContext(
       compiledKnowledge = db.getCompiledKnowledge(project);
     } catch {
       // Non-blocking: compiled_knowledge table may not exist in older installs
-    }
-
-    // Load checkpoint for session resume context
-    let checkpoint: Checkpoint | null = null;
-    try {
-      const checkpointService = new CheckpointService(db.db);
-      checkpoint = checkpointService.getLatestCheckpoint(project);
-    } catch {
-      // Non-blocking: checkpoint loading failure shouldn't break context generation
     }
 
     // Check if last session was interrupted (terminal closed unexpectedly)
