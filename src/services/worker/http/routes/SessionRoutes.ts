@@ -635,19 +635,10 @@ export class SessionRoutes extends BaseRouteHandler {
     // Pass empty strings - we only need the ID lookup, not to create a new session
     const sessionDbId = store.createSDKSession(contentSessionId, '', '');
 
-    // Check if session is in the active sessions map
-    const activeSession = this.sessionManager.getSession(sessionDbId);
-    if (!activeSession) {
-      // Session may not be in memory (already completed or never initialized)
-      logger.debug('SESSION', 'session-complete: Session not in active map', {
-        contentSessionId,
-        sessionDbId
-      });
-      res.json({ status: 'skipped', reason: 'not_active' });
-      return;
-    }
-
-    // Complete the session (removes from active sessions map)
+    // Complete the session: always update DB status, optionally clean up in-memory state.
+    // Previously this returned 'skipped' when session wasn't in the active map,
+    // which caused 76% of sessions to stay 'active' until the 6h orphan reaper
+    // marked them 'interrupted'. Now we always mark completed in DB.
     await this.completionHandler.completeByDbId(sessionDbId);
 
     logger.info('SESSION', 'Session completed via API', {

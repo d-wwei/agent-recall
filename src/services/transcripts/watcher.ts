@@ -6,6 +6,7 @@ import { expandHomePath } from './config.js';
 import { loadWatchState, saveWatchState, type TranscriptWatchState } from './state.js';
 import type { TranscriptWatchConfig, TranscriptSchema, WatchTarget } from './types.js';
 import { TranscriptEventProcessor } from './processor.js';
+import { ClaudeCodeTranscriptProcessor } from './claude-code-processor.js';
 
 interface TailState {
   offset: number;
@@ -81,6 +82,7 @@ class FileTailer {
 
 export class TranscriptWatcher {
   private processor = new TranscriptEventProcessor();
+  private ccProcessor = new ClaudeCodeTranscriptProcessor();
   private tailers = new Map<string, FileTailer>();
   private state: TranscriptWatchState;
   private rescanTimers: Array<NodeJS.Timeout> = [];
@@ -207,8 +209,14 @@ export class TranscriptWatcher {
     sessionIdOverride?: string | null
   ): Promise<void> {
     try {
-      const entry = JSON.parse(line);
-      await this.processor.processEntry(entry, watch, schema, sessionIdOverride ?? undefined);
+      if (schema.name === 'claude-code') {
+        // Claude Code JSONL has nested tool_use/tool_result inside content arrays.
+        // The generic schema processor can't match these — use the dedicated processor.
+        await this.ccProcessor.processLine(line, sessionIdOverride ?? undefined);
+      } else {
+        const entry = JSON.parse(line);
+        await this.processor.processEntry(entry, watch, schema, sessionIdOverride ?? undefined);
+      }
     } catch (error) {
       logger.debug('TRANSCRIPT', 'Failed to parse transcript line', {
         watch: watch.name,
