@@ -694,10 +694,12 @@ export class SessionRoutes extends BaseRouteHandler {
 
             store.storeSummary(session.memory_session_id, session.project, {
               request,
-              investigated: '',
-              learned,
-              completed,
-              next_steps: '',
+              investigated: observations.length > 0
+                ? `Worked on: ${observations.map(o => o.type).filter((v, i, a) => a.indexOf(v) === i).join(', ')}`
+                : 'Session completed without detailed investigation',
+              learned: learned || 'Session completed without detailed observations',
+              completed: completed || 'Session completed',
+              next_steps: 'Continue based on session context',
               notes: '[auto-backfilled at session complete]',
             });
             logger.info('SESSION', 'Backfilled missing summary', { contentSessionId, sessionDbId });
