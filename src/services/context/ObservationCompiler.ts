@@ -37,11 +37,12 @@ export function queryObservations(
 ): Observation[] {
   const typeArray = Array.from(config.observationTypes);
   const typePlaceholders = typeArray.map(() => '?').join(',');
-  const conceptArray = Array.from(config.observationConcepts);
-  const conceptPlaceholders = conceptArray.map(() => '?').join(',');
 
   const fetchLimit = config.totalObservationCount * DENSITY_FETCH_MULTIPLIER;
 
+  // Concept filter removed: SDK agents generate free-form concept tags that
+  // rarely match the mode's fixed vocabulary, causing 97%+ of observations
+  // to be silently excluded. Type filtering is sufficient for relevance.
   const candidates = db.db.prepare(`
     SELECT
       id, memory_session_id, type, title, subtitle, narrative,
@@ -50,13 +51,9 @@ export function queryObservations(
     FROM observations
     WHERE (project = ? OR scope = 'global')
       AND type IN (${typePlaceholders})
-      AND EXISTS (
-        SELECT 1 FROM json_each(concepts)
-        WHERE value IN (${conceptPlaceholders})
-      )
     ORDER BY created_at_epoch DESC
     LIMIT ?
-  `).all(project, ...typeArray, ...conceptArray, fetchLimit) as Observation[];
+  `).all(project, ...typeArray, fetchLimit) as Observation[];
 
   return rankByDensity(candidates, config.totalObservationCount);
 }
@@ -92,14 +89,13 @@ export function queryObservationsMulti(
 ): Observation[] {
   const typeArray = Array.from(config.observationTypes);
   const typePlaceholders = typeArray.map(() => '?').join(',');
-  const conceptArray = Array.from(config.observationConcepts);
-  const conceptPlaceholders = conceptArray.map(() => '?').join(',');
 
   // Build IN clause for projects
   const projectPlaceholders = projects.map(() => '?').join(',');
 
   const fetchLimit = config.totalObservationCount * DENSITY_FETCH_MULTIPLIER;
 
+  // Concept filter removed: see queryObservations comment
   const candidates = db.db.prepare(`
     SELECT
       id, memory_session_id, type, title, subtitle, narrative,
@@ -108,13 +104,9 @@ export function queryObservationsMulti(
     FROM observations
     WHERE (project IN (${projectPlaceholders}) OR scope = 'global')
       AND type IN (${typePlaceholders})
-      AND EXISTS (
-        SELECT 1 FROM json_each(concepts)
-        WHERE value IN (${conceptPlaceholders})
-      )
     ORDER BY created_at_epoch DESC
     LIMIT ?
-  `).all(...projects, ...typeArray, ...conceptArray, fetchLimit) as Observation[];
+  `).all(...projects, ...typeArray, fetchLimit) as Observation[];
 
   return rankByDensity(candidates, config.totalObservationCount);
 }
