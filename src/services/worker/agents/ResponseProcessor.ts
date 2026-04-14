@@ -193,7 +193,19 @@ async function syncAndBroadcastObservations(
     const obsId = result.observationIds[i];
     const obs = observations[i];
 
-    // Vector sync is handled by SeekDB's AutoMemorySync (event-driven)
+    // Sync to SeekDB vector database (fire-and-forget)
+    const seekdbSync = dbManager.getSeekdbSync();
+    if (seekdbSync && obsId) {
+      seekdbSync.syncObservation(obsId, obs.narrative || obs.title || '', {
+        doc_type: obs.type || 'observation',
+        project: session.project,
+        session_id: session.contentSessionId,
+        title: obs.title || '',
+        created_at_epoch: Date.now(),
+      }).catch(err => {
+        logger.warn('SEEKDB_SYNC', 'Failed to sync observation', { obsId, error: String(err) });
+      });
+    }
 
     // Broadcast to SSE clients (for web UI)
     // BUGFIX: Use obs.files_read and obs.files_modified (not obs.files)
@@ -261,7 +273,23 @@ async function syncAndBroadcastSummary(
     return;
   }
 
-  // Vector sync is handled by SeekDB's AutoMemorySync (event-driven)
+  // Sync summary to SeekDB vector database (fire-and-forget)
+  const seekdbSync = dbManager.getSeekdbSync();
+  if (seekdbSync && result.summaryId) {
+    const summaryText = [
+      summaryForStore.request,
+      summaryForStore.learned,
+      summaryForStore.completed,
+      summaryForStore.next_steps,
+    ].filter(Boolean).join('\n');
+    seekdbSync.syncSummary(result.summaryId, summaryText, {
+      doc_type: 'session_summary',
+      project: session.project,
+      session_id: session.contentSessionId,
+    }).catch(err => {
+      logger.warn('SEEKDB_SYNC', 'Failed to sync summary', { summaryId: result.summaryId, error: String(err) });
+    });
+  }
 
   // Broadcast to SSE clients (for web UI)
   broadcastSummary(worker, {

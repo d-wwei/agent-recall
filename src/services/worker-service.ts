@@ -423,23 +423,82 @@ export class WorkerService {
 
     // POST /api/compilation/trigger — fire-and-forget compilation check at session end
     this.server.app.post('/api/compilation/trigger', async (req, res) => {
-      const { project } = req.body;
+      const { contentSessionId, project: rawProject } = req.body;
       res.json({ status: 'accepted' });
+
+      // Resolve the actual project name from the database
+      let project = rawProject;
+      if (contentSessionId) {
+        try {
+          const store = this.dbManager.getSessionStore();
+          const dbId = store.createSDKSession(contentSessionId, '', '');
+          const session = store.getSessionById(dbId);
+          if (session?.project) {
+            project = session.project;
+          }
+        } catch {
+          // Fall through to rawProject
+        }
+      }
+
+      if (!project) {
+        logger.warn('COMPILATION', 'No project resolved for compilation trigger', { contentSessionId });
+        return;
+      }
 
       // Fire and forget
       try {
+        logger.info('COMPILATION', 'Compilation trigger received', { project, contentSessionId });
         const { CompilationEngine } = await import('./compilation/CompilationEngine.js');
+        const { SettingsDefaultsManager } = await import('../shared/SettingsDefaultsManager.js');
+        const { USER_SETTINGS_PATH } = await import('../shared/paths.js');
+        const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
         const engine = new CompilationEngine(
           this.dbManager.getSessionStore().db,
           this.lockManager!,
-          { AGENT_RECALL_COMPILATION_ENABLED: 'true' }
+          settings as unknown as Record<string, string>
         );
         const result = await engine.tryCompile(project);
         if (result) {
           logger.info('COMPILATION', 'Compilation completed', { project, ...result });
+        } else {
+          logger.info('COMPILATION', 'Compilation skipped (gate blocked)', { project });
         }
       } catch (err) {
-        logger.error('COMPILATION', 'Compilation failed', {}, err as Error);
+        logger.error('COMPILATION', 'Compilation failed', { project }, err as Error);
+      }
+    });
+
+    // POST /api/admin/backfill-seekdb — one-time sync of all observations to SeekDB
+    this.server.app.post('/api/admin/backfill-seekdb', async (_req, res) => {
+      const seekdbSync = this.dbManager.getSeekdbSync();
+      if (!seekdbSync) {
+        res.json({ status: 'skipped', reason: 'seekdb not initialized' });
+        return;
+      }
+
+      try {
+        const store = this.dbManager.getSessionStore();
+        const observations = store.db.prepare(
+          'SELECT id, narrative, title, type, project, memory_session_id, created_at_epoch FROM observations WHERE narrative IS NOT NULL ORDER BY id'
+        ).all() as { id: number; narrative: string; title: string; type: string; project: string; memory_session_id: string; created_at_epoch: number }[];
+
+        const ids = observations.map(o => `obs_${o.id}`);
+        const documents = observations.map(o => o.narrative || o.title || '');
+        const metadatas = observations.map(o => ({
+          doc_type: o.type || 'observation',
+          project: o.project || '',
+          session_id: o.memory_session_id || '',
+          title: o.title || '',
+          created_at_epoch: o.created_at_epoch || 0,
+        }));
+
+        await seekdbSync.upsertDocuments(ids, documents, metadatas);
+        logger.info('SEEKDB_SYNC', 'Backfill complete', { count: observations.length });
+        res.json({ status: 'ok', synced: observations.length });
+      } catch (err) {
+        logger.error('SEEKDB_SYNC', 'Backfill failed', {}, err as Error);
+        res.status(500).json({ error: (err as Error).message });
       }
     });
 
@@ -653,6 +712,22 @@ export class WorkerService {
         this.server.registerRoutes(new MarkdownSyncRoutes(mdExporter, mdImporter));
 
         logger.info('WORKER', 'Agent Recall routes registered (persona, bootstrap, recovery, archives, cleanup, templates, audit, backup, diary, collaboration, cross-project, learning, markdown-sync)');
+
+        // Auto-sync Claude Code memory files on startup
+        try {
+          const memoryDir = path.join(homedir(), '.claude', 'memory');
+          logger.info('SYSTEM', `AutoMemorySync: scanning ${memoryDir}`);
+          const autoSync = new AutoMemorySync(db, memoryDir);
+          const syncResult = autoSync.syncIncremental();
+          logger.info('SYSTEM', `AutoMemorySync complete: imported=${syncResult.imported} skipped=${syncResult.skipped} errors=${syncResult.errors.length}`);
+          if (syncResult.errors.length > 0) {
+            logger.warn('SYSTEM', `AutoMemorySync errors: ${syncResult.errors.join('; ')}`);
+          }
+        } catch (syncErr) {
+          logger.warn('SYSTEM', 'AutoMemorySync failed', {
+            error: syncErr instanceof Error ? syncErr.message : String(syncErr)
+          });
+        }
 
         // Start periodic tasks for newly wired services
         this.startBackupSchedule();

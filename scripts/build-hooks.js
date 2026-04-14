@@ -74,6 +74,9 @@ async function buildHooks() {
         'tree-sitter-ruby': '^0.23.1',
         'tree-sitter-rust': '^0.24.0',
         'tree-sitter-typescript': '^0.23.2',
+        // seekdb vector search (native bindings, cannot be bundled)
+        'seekdb': '^1.2.0',
+        '@seekdb/default-embed': '^1.2.0',
       },
       engines: {
         node: '>=18.0.0',
@@ -115,7 +118,11 @@ async function buildHooks() {
         'ollama',
         // Default embedding function with native binaries
         '@chroma-core/default-embed',
-        'onnxruntime-node'
+        'onnxruntime-node',
+        // seekdb vector search (native SQLite bindings + ONNX embedding model)
+        'seekdb',
+        '@seekdb/default-embed',
+        '@huggingface/transformers',
       ],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
