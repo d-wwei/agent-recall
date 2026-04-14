@@ -37,3 +37,7 @@ src/ui/viewer.html
 .claude/session-plan.md
 .octo/
 .apex/
+
+# Agent Recall data
+.assistant/
+.agent-recall/

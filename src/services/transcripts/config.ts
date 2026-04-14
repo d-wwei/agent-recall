@@ -7,6 +7,41 @@ import { DATA_DIR } from '../../shared/paths.js';
 export const DEFAULT_CONFIG_PATH = join(DATA_DIR, 'transcript-watch.json');
 export const DEFAULT_STATE_PATH = join(DATA_DIR, 'transcript-watch-state.json');
 
+/**
+ * Claude Code JSONL schema definition.
+ * Note: Claude Code uses nested content arrays, so the generic schema events
+ * only handle top-level entry types. The actual content parsing is done by
+ * ClaudeCodeTranscriptProcessor which bypasses the schema event matching.
+ * This schema is kept minimal — it's used for config validation and metadata only.
+ */
+const CLAUDE_CODE_SCHEMA: TranscriptSchema = {
+  name: 'claude-code',
+  version: '1.0',
+  description: 'Schema for Claude Code session JSONL files under ~/.claude/projects/.',
+  sessionIdPath: 'sessionId',
+  cwdPath: 'cwd',
+  events: [
+    {
+      name: 'user-text-message',
+      match: { path: 'type', equals: 'user' },
+      action: 'session_init',
+      fields: {
+        prompt: 'message.content',
+        sessionId: 'sessionId',
+        cwd: 'cwd'
+      }
+    },
+    {
+      name: 'assistant-message',
+      match: { path: 'type', equals: 'assistant' },
+      action: 'assistant_message',
+      fields: {
+        message: 'message.content'
+      }
+    }
+  ]
+};
+
 const CODEX_SAMPLE_SCHEMA: TranscriptSchema = {
   name: 'codex',
   version: '0.2',
@@ -86,9 +121,16 @@ const CODEX_SAMPLE_SCHEMA: TranscriptSchema = {
 export const SAMPLE_CONFIG: TranscriptWatchConfig = {
   version: 1,
   schemas: {
+    'claude-code': CLAUDE_CODE_SCHEMA,
     codex: CODEX_SAMPLE_SCHEMA
   },
   watches: [
+    {
+      name: 'claude-code',
+      path: '~/.claude/projects/*/*.jsonl',
+      schema: 'claude-code',
+      startAtEnd: true
+    },
     {
       name: 'codex',
       path: '~/.codex/sessions/**/*.jsonl',
