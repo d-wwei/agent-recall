@@ -152,11 +152,23 @@ describe('DoctorService', () => {
         insertUserPrompt(db);
       }
 
+      // Add completed_at for E-104
+      db.prepare("UPDATE sdk_sessions SET completed_at = datetime('now')").run();
+
+      // Add facts + concepts to observations for E-205
+      db.prepare("UPDATE observations SET facts = '[\"fact1\"]', concepts = '[\"concept1\"]'").run();
+
       // Add compilation, knowledge, entities, facts, diary, sync
       insertCompilationLog(db);
       insertCompiledKnowledge(db);
+      // Add a knowledge page with version > 1 for E-403
+      db.prepare("INSERT INTO compiled_knowledge (project, topic, content, source_observation_ids, version) VALUES ('test', 'Updated Topic', 'Updated', '[]', 2)").run();
       for (let i = 1; i <= 15; i++) insertEntity(db, `entity-${i}`);
-      insertFact(db, 'ent-entity-1');
+      // Add enough facts for E-602 ratio >= 2.0 (need >= 30 facts for 15 entities)
+      for (let i = 1; i <= 15; i++) {
+        insertFact(db, `ent-entity-${i}`);
+        db.prepare("INSERT INTO facts (id, subject, predicate, object, confidence, source_observation_id) VALUES (?, ?, 'has', NULL, 0.9, 1)").run(`fact2-ent-entity-${i}`, `ent-entity-${i}`);
+      }
       for (let i = 0; i < 5; i++) insertDiaryEntry(db);
       insertSyncState(db);
 

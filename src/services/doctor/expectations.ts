@@ -37,7 +37,7 @@ export function gradeFromScore(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
 export const CRITICAL_IDS = ['E-201', 'E-401', 'E-402'] as const;
 
 // ---------------------------------------------------------------------------
-// All 16 expectations
+// All 21 expectations
 // ---------------------------------------------------------------------------
 
 export const EXPECTATIONS: ExpectationDef[] = [
@@ -48,6 +48,20 @@ export const EXPECTATIONS: ExpectationDef[] = [
     category: 'Worker Service',
     severity: 'HIGH',
     threshold: 'Worker responds on port 37777',
+  },
+  {
+    id: 'E-103',
+    name: 'Active Session Accumulation',
+    category: 'Worker Service',
+    severity: 'MEDIUM',
+    threshold: 'PASS <= 5; WARN <= 15; FAIL > 15',
+  },
+  {
+    id: 'E-104',
+    name: 'Session Completed At',
+    category: 'Worker Service',
+    severity: 'HIGH',
+    threshold: 'PASS >= 80%; WARN >= 50%; FAIL < 50%',
   },
 
   // Category 2: Observation Capture
@@ -78,6 +92,13 @@ export const EXPECTATIONS: ExpectationDef[] = [
     category: 'Observation Capture',
     severity: 'MEDIUM',
     threshold: '>=95% unique content hashes',
+  },
+  {
+    id: 'E-205',
+    name: 'Facts/Concepts Coverage',
+    category: 'Observation Capture',
+    severity: 'MEDIUM',
+    threshold: 'PASS >= 50%; WARN >= 30%; FAIL < 30%',
   },
 
   // Category 3: Session Summaries
@@ -111,6 +132,13 @@ export const EXPECTATIONS: ExpectationDef[] = [
     severity: 'CRITICAL',
     threshold: '>0 total AND new/updated pages in last 7 days; WARN if stale',
   },
+  {
+    id: 'E-403',
+    name: 'Knowledge Page Updates',
+    category: 'Knowledge Compilation',
+    severity: 'MEDIUM',
+    threshold: 'PASS >= 10%; WARN > 0%; FAIL = 0%',
+  },
 
   // Category 5: Entity Extraction
   {
@@ -122,10 +150,10 @@ export const EXPECTATIONS: ExpectationDef[] = [
   },
   {
     id: 'E-602',
-    name: 'Fact Linking',
+    name: 'Fact Density',
     category: 'Entity Extraction',
     severity: 'HIGH',
-    threshold: '>0 facts',
+    threshold: 'PASS >= 2.0 facts/entity; WARN >= 1.0; FAIL < 1.0',
   },
 
   // Category 6: Agent Diary
@@ -169,6 +197,13 @@ export const EXPECTATIONS: ExpectationDef[] = [
     category: 'Error Health',
     severity: 'HIGH',
     threshold: '<=2% PASS, 2-5% WARN, >5% FAIL',
+  },
+  {
+    id: 'E-1002',
+    name: 'Trend Degradation',
+    category: 'Error Health',
+    severity: 'HIGH',
+    threshold: 'PASS no decline; WARN 1 metric declining 3x; FAIL 2+ declining',
   },
 ];
 
