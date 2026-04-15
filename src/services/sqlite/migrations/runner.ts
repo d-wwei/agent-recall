@@ -58,6 +58,7 @@ export class MigrationRunner {
     this.addStructuredSummaryColumn(); // migration 44
     this.addInterruptedSessionStatus(); // migration 45
     this.createDoctorReportsTable();    // migration 46
+    this.addDoctorDeepAnalysisColumn(); // migration 47
   }
 
   /**
@@ -1619,5 +1620,23 @@ export class MigrationRunner {
 
     this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(46, new Date().toISOString());
     logger.debug('DB', 'Created doctor_reports table');
+  }
+
+  /**
+   * Add deep_analysis column to doctor_reports for storing deep audit results (migration 47)
+   */
+  private addDoctorDeepAnalysisColumn(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(47);
+    if (applied) return;
+
+    const tableInfo = this.db.prepare('PRAGMA table_info(doctor_reports)').all() as Array<{ name: string }>;
+    const hasColumn = tableInfo.some((c) => c.name === 'deep_analysis');
+
+    if (!hasColumn) {
+      this.db.run('ALTER TABLE doctor_reports ADD COLUMN deep_analysis TEXT');
+      logger.debug('DB', 'Added deep_analysis column to doctor_reports');
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(47, new Date().toISOString());
   }
 }

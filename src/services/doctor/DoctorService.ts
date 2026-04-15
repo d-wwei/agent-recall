@@ -24,10 +24,17 @@ import {
 } from './expectations.js';
 import type {
   DoctorReport,
+  DeepReport,
   DoctorHistoryEntry,
   ExpectationResult,
   Score,
   Grade,
+  DailyBreakdown,
+  SessionStatusBreakdown,
+  ObsPerSessionEntry,
+  ObservationQuality,
+  SummaryQuality,
+  LogAnalysis,
 } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -49,6 +56,7 @@ function safeCount(db: Database, sql: string, params: unknown[] = []): number {
 
 export class DoctorService {
   private logsDir: string;
+  private lastInsertId: number | null = null;
 
   constructor(private db: Database) {
     this.logsDir = join(homedir(), '.agent-recall', 'logs');
@@ -77,6 +85,7 @@ export class DoctorService {
     };
 
     // Persist to doctor_reports
+    this.lastInsertId = null;
     try {
       this.db.prepare(`
         INSERT INTO doctor_reports (score, grade, mode, results, critical_failures, recommendations, created_at)
@@ -90,6 +99,8 @@ export class DoctorService {
         JSON.stringify(report.recommendations),
         report.created_at,
       );
+      const row = this.db.prepare('SELECT last_insert_rowid() as id').get() as { id: number } | null;
+      this.lastInsertId = row?.id ?? null;
     } catch (err) {
       logger.error('DOCTOR', 'Failed to store report', {}, err as Error);
     }
@@ -166,7 +177,7 @@ export class DoctorService {
       const row = this.db.prepare(`
         SELECT score, grade, mode, results, critical_failures, recommendations, created_at
         FROM doctor_reports
-        WHERE mode = 'full'
+        WHERE mode IN ('full', 'deep')
         ORDER BY created_at DESC
         LIMIT 1
       `).get() as {
@@ -184,7 +195,7 @@ export class DoctorService {
       return {
         score: row.score,
         grade: row.grade as Grade,
-        mode: 'full',
+        mode: row.mode as 'full' | 'deep',
         results: JSON.parse(row.results),
         critical_failures: row.critical_failures ? JSON.parse(row.critical_failures) : [],
         recommendations: row.recommendations ? JSON.parse(row.recommendations) : [],
@@ -193,6 +204,227 @@ export class DoctorService {
     } catch {
       return null;
     }
+  }
+
+  // ---- Deep analysis -----------------------------------------------------
+
+  /**
+   * Run full audit + deep analysis. Stores complete report in DB.
+   */
+  runDeep(): DeepReport {
+    const fullReport = this.runFull();
+
+    const deep: DeepReport = {
+      ...fullReport,
+      mode: 'deep',
+      daily_breakdown: this.deepDailyBreakdown(),
+      session_status: this.deepSessionStatus(),
+      obs_per_session: this.deepObsPerSession(),
+      observation_quality: this.deepObservationQuality(),
+      summary_quality: this.deepSummaryQuality(),
+      log_analysis: this.deepLogAnalysis(),
+    };
+
+    // Enhance recommendations with deep-analysis-aware insights
+    deep.recommendations = this.generateDeepRecommendations(deep);
+
+    // Store deep_analysis in the most recent report row
+    try {
+      const deepJson = JSON.stringify({
+        daily_breakdown: deep.daily_breakdown,
+        session_status: deep.session_status,
+        obs_per_session: deep.obs_per_session,
+        observation_quality: deep.observation_quality,
+        summary_quality: deep.summary_quality,
+        log_analysis: deep.log_analysis,
+      });
+      if (this.lastInsertId) {
+        this.db.prepare(`
+          UPDATE doctor_reports SET deep_analysis = ?, mode = 'deep', recommendations = ?
+          WHERE id = ?
+        `).run(deepJson, JSON.stringify(deep.recommendations), this.lastInsertId);
+      }
+    } catch (err) {
+      logger.warn('DOCTOR', 'Failed to store deep analysis', { error: (err as Error).message });
+    }
+
+    return deep;
+  }
+
+  private deepDailyBreakdown(): DailyBreakdown[] {
+    const days: DailyBreakdown[] = [];
+    const tables = [
+      { key: 'observations', sql: "SELECT DATE(created_at) as day, COUNT(*) as cnt FROM observations WHERE created_at > datetime('now', '-7 days') GROUP BY day ORDER BY day" },
+      { key: 'sessions', sql: "SELECT DATE(started_at) as day, COUNT(*) as cnt FROM sdk_sessions WHERE started_at > datetime('now', '-7 days') GROUP BY day ORDER BY day" },
+      { key: 'summaries', sql: "SELECT DATE(created_at) as day, COUNT(*) as cnt FROM session_summaries WHERE created_at > datetime('now', '-7 days') GROUP BY day ORDER BY day" },
+      { key: 'prompts', sql: "SELECT DATE(created_at) as day, COUNT(*) as cnt FROM user_prompts WHERE created_at > datetime('now', '-7 days') GROUP BY day ORDER BY day" },
+    ];
+
+    const dayMap = new Map<string, DailyBreakdown>();
+
+    for (const { key, sql } of tables) {
+      try {
+        const rows = this.db.prepare(sql).all() as Array<{ day: string; cnt: number }>;
+        for (const row of rows) {
+          if (!row.day) continue;
+          if (!dayMap.has(row.day)) {
+            dayMap.set(row.day, { date: row.day, observations: 0, sessions: 0, summaries: 0, prompts: 0 });
+          }
+          (dayMap.get(row.day)! as unknown as Record<string, number | string>)[key] = row.cnt;
+        }
+      } catch { /* table may not exist */ }
+    }
+
+    return Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  private deepSessionStatus(): SessionStatusBreakdown {
+    const result: SessionStatusBreakdown = { completed: 0, interrupted: 0, failed: 0, active: 0 };
+    try {
+      const rows = this.db.prepare('SELECT status, COUNT(*) as cnt FROM sdk_sessions GROUP BY status').all() as Array<{ status: string; cnt: number }>;
+      for (const row of rows) {
+        if (row.status in result) {
+          (result as unknown as Record<string, number>)[row.status] = row.cnt;
+        }
+      }
+    } catch { /* */ }
+    return result;
+  }
+
+  private deepObsPerSession(): ObsPerSessionEntry[] {
+    try {
+      const rows = this.db.prepare(`
+        SELECT obs_count, COUNT(*) as session_count FROM (
+          SELECT s.id, COALESCE(o.cnt, 0) as obs_count
+          FROM sdk_sessions s
+          LEFT JOIN (
+            SELECT memory_session_id, COUNT(*) as cnt
+            FROM observations GROUP BY memory_session_id
+          ) o ON o.memory_session_id = s.memory_session_id
+        ) GROUP BY obs_count ORDER BY obs_count
+      `).all() as Array<{ obs_count: number; session_count: number }>;
+      return rows;
+    } catch {
+      return [];
+    }
+  }
+
+  private deepObservationQuality(): ObservationQuality {
+    const total = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM observations');
+    const has_title = safeCount(this.db, "SELECT COUNT(*) as cnt FROM observations WHERE title IS NOT NULL AND title != ''");
+    const has_narrative = safeCount(this.db, "SELECT COUNT(*) as cnt FROM observations WHERE narrative IS NOT NULL AND narrative != ''");
+    const has_facts = safeCount(this.db, "SELECT COUNT(*) as cnt FROM observations WHERE facts IS NOT NULL AND facts != '' AND facts != '[]'");
+    const has_concepts = safeCount(this.db, "SELECT COUNT(*) as cnt FROM observations WHERE concepts IS NOT NULL AND concepts != '' AND concepts != '[]'");
+    const unique_hashes = safeCount(this.db, 'SELECT COUNT(DISTINCT content_hash) as cnt FROM observations WHERE content_hash IS NOT NULL');
+
+    let type_distribution: Array<{ type: string; count: number }> = [];
+    try {
+      type_distribution = this.db.prepare('SELECT type, COUNT(*) as count FROM observations GROUP BY type ORDER BY count DESC').all() as Array<{ type: string; count: number }>;
+    } catch { /* */ }
+
+    return { total, has_title, has_narrative, has_facts, has_concepts, unique_hashes, type_distribution };
+  }
+
+  private deepSummaryQuality(): SummaryQuality {
+    const total = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM session_summaries');
+    const has_request = safeCount(this.db, "SELECT COUNT(*) as cnt FROM session_summaries WHERE request IS NOT NULL AND request != ''");
+    const has_next_steps = safeCount(this.db, "SELECT COUNT(*) as cnt FROM session_summaries WHERE next_steps IS NOT NULL AND next_steps != ''");
+    const has_learned = safeCount(this.db, "SELECT COUNT(*) as cnt FROM session_summaries WHERE learned IS NOT NULL AND learned != ''");
+    const has_completed = safeCount(this.db, "SELECT COUNT(*) as cnt FROM session_summaries WHERE completed IS NOT NULL AND completed != ''");
+    const fully_structured = safeCount(this.db, `
+      SELECT COUNT(*) as cnt FROM session_summaries
+      WHERE request IS NOT NULL AND request != ''
+        AND learned IS NOT NULL AND learned != ''
+        AND completed IS NOT NULL AND completed != ''
+        AND next_steps IS NOT NULL AND next_steps != ''
+    `);
+
+    return { total, has_request, has_next_steps, has_learned, has_completed, fully_structured };
+  }
+
+  private deepLogAnalysis(): LogAnalysis {
+    const result: LogAnalysis = {
+      total_lines: 0, errors: 0, warnings: 0,
+      session_starts: 0, extraction_events: 0, context_events: 0, compilation_events: 0,
+      top_error_patterns: [],
+    };
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      let logFile = join(this.logsDir, `claude-mem-${today}.log`);
+
+      if (!existsSync(logFile)) {
+        if (!existsSync(this.logsDir)) return result;
+        const files = readdirSync(this.logsDir)
+          .filter((f) => f.startsWith('claude-mem-') && f.endsWith('.log'))
+          .sort().reverse();
+        if (files.length === 0) return result;
+        logFile = join(this.logsDir, files[0]);
+      }
+
+      const content = readFileSync(logFile, 'utf-8');
+      const lines = content.split('\n').filter((l) => l.trim().length > 0);
+      result.total_lines = lines.length;
+
+      const errorPatterns = new Map<string, number>();
+
+      for (const line of lines) {
+        if (/\[ERROR\s*\]/.test(line)) {
+          result.errors++;
+          // Extract component from [ERROR] [COMPONENT]
+          const match = line.match(/\[ERROR\s*\]\s*\[(\w+)\s*\]/);
+          if (match) {
+            const pattern = match[1];
+            errorPatterns.set(pattern, (errorPatterns.get(pattern) || 0) + 1);
+          }
+        }
+        if (/\[WARN\s*\]/.test(line)) result.warnings++;
+        if (/session.*start|SessionStart/i.test(line)) result.session_starts++;
+        if (/extract|MINER/i.test(line)) result.extraction_events++;
+        if (/context.*inject|context.*build|CONTEXT/i.test(line)) result.context_events++;
+        if (/compil|COMPILATION/i.test(line)) result.compilation_events++;
+      }
+
+      result.top_error_patterns = Array.from(errorPatterns.entries())
+        .map(([pattern, count]) => ({ pattern, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+    } catch { /* */ }
+
+    return result;
+  }
+
+  private generateDeepRecommendations(deep: DeepReport): string[] {
+    // Start with base recommendations from runFull
+    const recs = [...deep.recommendations];
+
+    // Session status analysis
+    const total = deep.session_status.completed + deep.session_status.interrupted + deep.session_status.failed + deep.session_status.active;
+    if (total > 0 && deep.session_status.interrupted / total > 0.3) {
+      recs.push(`[HIGH] Too many interrupted sessions (${deep.session_status.interrupted}/${total} = ${Math.round(deep.session_status.interrupted / total * 100)}%). Terminal closures or crashes may be preventing proper session completion.`);
+    }
+
+    // Obs per session zero-capture analysis
+    const zeroCaptureEntry = deep.obs_per_session.find((e) => e.obs_count === 0);
+    if (zeroCaptureEntry && total > 0 && zeroCaptureEntry.session_count / total > 0.15) {
+      recs.push(`[HIGH] ${zeroCaptureEntry.session_count} sessions (${Math.round(zeroCaptureEntry.session_count / total * 100)}%) produced zero observations. PostToolUse hook may not be firing for these sessions.`);
+    }
+
+    // Vector sync coverage
+    const syncCount = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM sync_state');
+    const obsCount = deep.observation_quality.total;
+    if (obsCount > 0 && syncCount < obsCount * 0.5) {
+      recs.push(`[HIGH] Vector sync severely behind (${syncCount} synced vs ${obsCount} observations). Semantic search quality degraded.`);
+    }
+
+    // Knowledge graph density
+    const entityCount = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM entities');
+    const factCount = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM facts');
+    if (entityCount > 10 && factCount < entityCount * 0.5) {
+      recs.push(`[MEDIUM] Knowledge graph has nodes but few edges (${entityCount} entities, ${factCount} facts). Fact extraction may need attention.`);
+    }
+
+    return recs;
   }
 
   // ---- Expectation runners -----------------------------------------------
@@ -247,21 +479,26 @@ export class DoctorService {
   // ---- Individual checks -------------------------------------------------
 
   private checkWorkerHealth(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
-    // In-process check: if we're running inside the worker, we're UP.
-    // If called externally, try a sync HTTP check.
+    // DoctorService runs inside the worker process (via DoctorRoutes),
+    // so if we're executing, the worker is definitionally UP.
+    // For robustness, also try a sync HTTP probe via Bun.spawnSync.
     try {
-      // Use a synchronous approach: check if the worker port file or PID exists
-      const pidFile = join(homedir(), '.agent-recall', 'worker.pid');
-      const isUp = existsSync(pidFile);
+      const proc = Bun.spawnSync(['curl', '-s', '--max-time', '2', 'http://localhost:37777/api/health'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const output = proc.stdout.toString().trim();
+      const isUp = proc.exitCode === 0 && output.includes('"status":"ok"');
       return {
         id: 'E-101',
         score: isUp ? 'PASS' : 'INFO',
-        result: isUp ? 'Worker is UP' : 'Worker PID file not found',
+        result: isUp ? 'Worker is UP' : 'Worker health probe failed',
         value: isUp ? 1 : 0,
         severity,
       };
     } catch {
-      return { id: 'E-101', score: 'INFO', result: 'Could not check worker', value: null, severity };
+      // If curl isn't available or probe fails, we're inside the worker — so UP
+      return { id: 'E-101', score: 'PASS', result: 'Worker is UP (in-process)', value: 1, severity };
     }
   }
 

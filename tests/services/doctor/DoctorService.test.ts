@@ -356,4 +356,72 @@ describe('DoctorService', () => {
       expect(report2.results['E-601'].score).toBe('PASS');
     });
   });
+
+  describe('runDeep', () => {
+    it('returns deep report with all analysis sections', () => {
+      const service = new DoctorService(db);
+
+      // Populate with data
+      for (let i = 1; i <= 5; i++) {
+        insertSession(db, i, `deep-sess-${i}`);
+        insertObservation(db, `mem-deep-sess-${i}`, 'discovery');
+        insertObservation(db, `mem-deep-sess-${i}`, 'change');
+        insertSummary(db, `mem-deep-sess-${i}`, true);
+      }
+
+      const report = service.runDeep();
+
+      expect(report.mode).toBe('deep');
+      expect(report.score).toBeDefined();
+      expect(report.grade).toBeDefined();
+      expect(report.results).toBeDefined();
+
+      // Deep analysis sections exist
+      expect(report.daily_breakdown).toBeDefined();
+      expect(Array.isArray(report.daily_breakdown)).toBe(true);
+      expect(report.session_status).toBeDefined();
+      expect(report.session_status.completed).toBeGreaterThanOrEqual(0);
+      expect(report.obs_per_session).toBeDefined();
+      expect(Array.isArray(report.obs_per_session)).toBe(true);
+      expect(report.observation_quality).toBeDefined();
+      expect(report.observation_quality.total).toBe(10);
+      expect(report.summary_quality).toBeDefined();
+      expect(report.summary_quality.total).toBe(5);
+      expect(report.log_analysis).toBeDefined();
+    });
+
+    it('stores deep_analysis in doctor_reports', () => {
+      const service = new DoctorService(db);
+      insertSession(db, 1, 'deep-store-sess-1');
+      insertObservation(db, 'mem-deep-store-sess-1', 'discovery');
+
+      service.runDeep();
+
+      const row = db.prepare("SELECT deep_analysis, mode FROM doctor_reports WHERE mode = 'deep' ORDER BY created_at DESC LIMIT 1").get() as { deep_analysis: string | null; mode: string } | null;
+      expect(row).not.toBeNull();
+      expect(row!.mode).toBe('deep');
+      expect(row!.deep_analysis).not.toBeNull();
+
+      const parsed = JSON.parse(row!.deep_analysis!);
+      expect(parsed.observation_quality).toBeDefined();
+      expect(parsed.session_status).toBeDefined();
+    });
+
+    it('generates deep recommendations for interrupted sessions', () => {
+      const service = new DoctorService(db);
+
+      // Create sessions with mixed statuses — many interrupted
+      for (let i = 1; i <= 10; i++) {
+        db.prepare(`
+          INSERT OR IGNORE INTO sdk_sessions (id, content_session_id, memory_session_id, project, user_prompt, started_at, started_at_epoch, status)
+          VALUES (?, ?, ?, 'test', 'prompt', datetime('now'), ?, ?)
+        `).run(300 + i, `int-sess-${i}`, `mem-int-sess-${i}`, Date.now(), i <= 4 ? 'completed' : 'interrupted');
+      }
+
+      const report = service.runDeep();
+      // 6/10 interrupted = 60% > 30% threshold
+      const hasInterruptRec = report.recommendations.some(r => r.includes('interrupted'));
+      expect(hasInterruptRec).toBe(true);
+    });
+  });
 });

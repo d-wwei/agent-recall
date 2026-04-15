@@ -243,6 +243,7 @@ export async function run(): Promise<void> {
   const positional = args.filter(a => !a.startsWith('--'));
 
   const isQuick = flags.has('--quick');
+  const isDeep = flags.has('--deep');
   const isJson = flags.has('--json');
   const isHistory = flags.has('--history');
   const isFix = flags.has('--fix');
@@ -285,6 +286,90 @@ export async function run(): Promise<void> {
       printAuditReport(audit);
     }
     process.exit(audit.critical_failures.length > 0 ? 1 : 0);
+  }
+
+  // --- Deep mode ---
+  if (isDeep) {
+    const deepAudit = await fetchWorkerJson<AuditReport & {
+      daily_breakdown?: Array<{ date: string; observations: number; sessions: number; summaries: number; prompts: number }>;
+      session_status?: { completed: number; interrupted: number; failed: number; active: number };
+      obs_per_session?: Array<{ obs_count: number; session_count: number }>;
+      observation_quality?: { total: number; has_title: number; has_narrative: number; has_facts: number; has_concepts: number; unique_hashes: number; type_distribution: Array<{ type: string; count: number }> };
+      summary_quality?: { total: number; has_request: number; has_next_steps: number; has_learned: number; has_completed: number; fully_structured: number };
+      log_analysis?: { total_lines: number; errors: number; warnings: number; session_starts: number; extraction_events: number; context_events: number; compilation_events: number; top_error_patterns: Array<{ pattern: string; count: number }> };
+    }>('/api/doctor/deep');
+
+    if (!deepAudit) {
+      log(formatFail('Could not reach worker. Is it running?', 'Start with: npx agent-recall worker start'));
+      process.exit(1);
+    }
+
+    if (isJson) {
+      console.log(JSON.stringify(deepAudit, null, 2));
+      process.exit(0);
+    }
+
+    log('');
+    log(formatBanner() + '  —  doctor (deep)');
+    printAuditReport(deepAudit);
+
+    // Deep analysis sections
+    if (deepAudit.daily_breakdown && deepAudit.daily_breakdown.length > 0) {
+      log(formatHeader('Daily Breakdown (7 days)'));
+      log(`  ${'Date'.padEnd(12)} ${'Obs'.padEnd(6)} ${'Sess'.padEnd(6)} ${'Sum'.padEnd(6)} Prompts`);
+      log(`  ${'─'.repeat(12)} ${'─'.repeat(6)} ${'─'.repeat(6)} ${'─'.repeat(6)} ${'─'.repeat(8)}`);
+      for (const d of deepAudit.daily_breakdown) {
+        log(`  ${d.date.padEnd(12)} ${String(d.observations).padEnd(6)} ${String(d.sessions).padEnd(6)} ${String(d.summaries).padEnd(6)} ${d.prompts}`);
+      }
+      log('');
+    }
+
+    if (deepAudit.session_status) {
+      const ss = deepAudit.session_status;
+      log(formatHeader('Session Status'));
+      log(`  Completed: ${ss.completed}  Interrupted: ${ss.interrupted}  Failed: ${ss.failed}  Active: ${ss.active}`);
+      log('');
+    }
+
+    if (deepAudit.obs_per_session && deepAudit.obs_per_session.length > 0) {
+      log(formatHeader('Observations per Session'));
+      for (const e of deepAudit.obs_per_session) {
+        const label = e.obs_count >= 4 ? `${e.obs_count}+` : String(e.obs_count);
+        const bar = '█'.repeat(Math.min(e.session_count, 40));
+        log(`  ${label.padEnd(4)} ${bar} ${e.session_count}`);
+      }
+      log('');
+    }
+
+    if (deepAudit.observation_quality) {
+      const oq = deepAudit.observation_quality;
+      log(formatHeader('Observation Quality'));
+      log(`  Total: ${oq.total}  Title: ${oq.has_title}  Narrative: ${oq.has_narrative}  Facts: ${oq.has_facts}  Concepts: ${oq.has_concepts}  Unique: ${oq.unique_hashes}`);
+      if (oq.type_distribution.length > 0) {
+        log(`  Types: ${oq.type_distribution.map(t => `${t.type}:${t.count}`).join(', ')}`);
+      }
+      log('');
+    }
+
+    if (deepAudit.summary_quality) {
+      const sq = deepAudit.summary_quality;
+      log(formatHeader('Summary Quality'));
+      log(`  Total: ${sq.total}  Request: ${sq.has_request}  Learned: ${sq.has_learned}  Completed: ${sq.has_completed}  Next: ${sq.has_next_steps}  Full: ${sq.fully_structured}`);
+      log('');
+    }
+
+    if (deepAudit.log_analysis && deepAudit.log_analysis.total_lines > 0) {
+      const la = deepAudit.log_analysis;
+      log(formatHeader('Log Analysis'));
+      log(`  Lines: ${la.total_lines}  Errors: ${la.errors}  Warnings: ${la.warnings}`);
+      log(`  Sessions: ${la.session_starts}  Context: ${la.context_events}  Compilation: ${la.compilation_events}`);
+      if (la.top_error_patterns.length > 0) {
+        log(`  Top Errors: ${la.top_error_patterns.map(p => `${p.pattern}:${p.count}`).join(', ')}`);
+      }
+      log('');
+    }
+
+    process.exit(deepAudit.critical_failures.length > 0 ? 1 : 0);
   }
 
   // --- Full mode (default): infra + audit ---

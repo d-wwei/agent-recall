@@ -81,7 +81,9 @@ export const contextHandler: EventHandler = {
             additionalContext += `\n[Agent Recall Health Warning] CRITICAL failures detected: ${failIds}. Run agent-recall doctor for details.`;
           }
         }
-      } catch { /* silent — zero noise on failure */ }
+      } catch (err) {
+        logger.warn('DOCTOR', 'SessionStart quick check failed', { error: err instanceof Error ? err.message : String(err) });
+      }
 
       // Use colored timeline for display if available, otherwise fall back to 
       // plain markdown context (especially useful for platforms like Gemini 
