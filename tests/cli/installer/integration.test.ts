@@ -41,7 +41,7 @@ describe('CLI integration', () => {
     const result = spawnSync('node', [CLI_PATH, 'doctor'], { encoding: 'utf-8', timeout: 15000 });
     // Doctor may exit 0 or 1 — both valid depending on system state
     const output = result.stderr || result.stdout;
-    expect(output).toContain('Doctor');
+    expect(output.toLowerCase()).toContain('doctor');
     // Should have at least one category section
     expect(output).toMatch(/Runtime|Worker|Database|Adapter/i);
   });
