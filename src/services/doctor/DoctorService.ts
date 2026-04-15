@@ -595,18 +595,47 @@ export class DoctorService {
       return { id: 'E-301', score: 'FAIL', result: '0 sessions', value: 0, severity };
     }
 
-    const pct = (totalSummaries / totalSessions) * 100;
-    const rounded = Math.round(pct * 10) / 10;
+    const totalPct = (totalSummaries / totalSessions) * 100;
+    const totalRounded = Math.round(totalPct * 10) / 10;
 
-    let score: Score = 'FAIL';
-    if (pct >= 50) score = 'PASS';
-    else if (pct >= 30) score = 'WARN';
+    // Total check fails → FAIL regardless of recency
+    if (totalPct < 30) {
+      return { id: 'E-301', score: 'FAIL', result: `${totalRounded}% total coverage (${totalSummaries}/${totalSessions})`, value: totalRounded, severity };
+    }
+    if (totalPct < 50) {
+      return { id: 'E-301', score: 'WARN', result: `${totalRounded}% total coverage (${totalSummaries}/${totalSessions})`, value: totalRounded, severity };
+    }
+
+    // Total >= 50% → check recent 7-day incremental
+    const row = this.db.prepare(`
+      SELECT
+        COUNT(DISTINCT s.id) as recent_completed,
+        COUNT(DISTINCT sm.id) as recent_with_summary
+      FROM sdk_sessions s
+      LEFT JOIN session_summaries sm ON sm.memory_session_id = s.memory_session_id
+      WHERE s.status = 'completed'
+        AND s.started_at > datetime('now', '-7 days')
+    `).get() as { recent_completed: number; recent_with_summary: number } | null;
+
+    const recentCompleted = row?.recent_completed ?? 0;
+    const recentWithSummary = row?.recent_with_summary ?? 0;
+
+    // No recent completed sessions → fall back to total-only (no penalty)
+    if (recentCompleted === 0) {
+      return { id: 'E-301', score: 'PASS', result: `${totalRounded}% total (no recent completed sessions)`, value: totalRounded, severity };
+    }
+
+    const recentPct = (recentWithSummary / recentCompleted) * 100;
+    const recentRounded = Math.round(recentPct * 10) / 10;
+
+    let score: Score = 'WARN';
+    if (recentPct >= 70) score = 'PASS';
 
     return {
       id: 'E-301',
       score,
-      result: `${rounded}% coverage (${totalSummaries}/${totalSessions})`,
-      value: rounded,
+      result: `${totalRounded}% total, ${recentRounded}% recent 7d (${recentWithSummary}/${recentCompleted})`,
+      value: recentRounded,
       severity,
     };
   }
@@ -641,38 +670,93 @@ export class DoctorService {
   }
 
   private checkCompilationRuns(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
-    const count = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM compilation_logs');
+    const row = this.db.prepare(`
+      SELECT
+        COUNT(*) as total_runs,
+        COUNT(CASE WHEN completed_at > datetime('now', '-7 days') THEN 1 END) as recent_runs
+      FROM compilation_logs
+    `).get() as { total_runs: number; recent_runs: number } | null;
 
+    const total = row?.total_runs ?? 0;
+    const recent = row?.recent_runs ?? 0;
+
+    if (total === 0) {
+      return { id: 'E-401', score: 'FAIL', result: '0 compilation runs', value: 0, severity };
+    }
+
+    // Has recent sessions? Check if there's activity to compile
+    const recentSessions = safeCount(this.db, "SELECT COUNT(*) as cnt FROM sdk_sessions WHERE started_at > datetime('now', '-7 days')");
+
+    // No recent sessions → no reason to expect recent compilation, total-only
+    if (recentSessions === 0) {
+      return { id: 'E-401', score: 'PASS', result: `${total} runs (no recent sessions)`, value: total, severity };
+    }
+
+    const score: Score = recent > 0 ? 'PASS' : 'WARN';
     return {
       id: 'E-401',
-      score: count > 0 ? 'PASS' : 'FAIL',
-      result: `${count} compilation runs (expected: >0)`,
-      value: count,
+      score,
+      result: `${total} total, ${recent} in last 7d`,
+      value: total,
       severity,
     };
   }
 
   private checkCompiledKnowledge(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
-    const count = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM compiled_knowledge');
+    const row = this.db.prepare(`
+      SELECT
+        COUNT(*) as total_pages,
+        COUNT(CASE WHEN created_at > datetime('now', '-7 days') THEN 1 END) as recent_new,
+        COUNT(CASE WHEN version > 1 THEN 1 END) as updated_pages
+      FROM compiled_knowledge
+    `).get() as { total_pages: number; recent_new: number; updated_pages: number } | null;
 
+    const total = row?.total_pages ?? 0;
+    const recentNew = row?.recent_new ?? 0;
+    const updated = row?.updated_pages ?? 0;
+
+    if (total === 0) {
+      return { id: 'E-402', score: 'FAIL', result: '0 knowledge pages', value: 0, severity };
+    }
+
+    // No recent sessions → no reason to expect growth, total-only
+    const recentSessions = safeCount(this.db, "SELECT COUNT(*) as cnt FROM sdk_sessions WHERE started_at > datetime('now', '-7 days')");
+    if (recentSessions === 0) {
+      return { id: 'E-402', score: 'PASS', result: `${total} pages (no recent sessions)`, value: total, severity };
+    }
+
+    const hasGrowth = recentNew > 0 || updated > 0;
+    const score: Score = hasGrowth ? 'PASS' : 'WARN';
     return {
       id: 'E-402',
-      score: count > 0 ? 'PASS' : 'FAIL',
-      result: `${count} knowledge pages (expected: >0)`,
-      value: count,
+      score,
+      result: `${total} pages, ${recentNew} new + ${updated} updated in 7d`,
+      value: total,
       severity,
     };
   }
 
   private checkEntityExtraction(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
-    const count = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM entities');
+    const total = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM entities');
     const totalObs = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM observations');
+    const recent = safeCount(this.db, "SELECT COUNT(*) as cnt FROM entities WHERE first_seen_at > datetime('now', '-7 days')");
 
+    if (total <= 10) {
+      return { id: 'E-601', score: 'FAIL', result: `${total} entities from ${totalObs} observations`, value: total, severity };
+    }
+
+    // No recent sessions → fall back to total-only
+    const recentSessions = safeCount(this.db, "SELECT COUNT(*) as cnt FROM sdk_sessions WHERE started_at > datetime('now', '-7 days')");
+    if (recentSessions === 0) {
+      return { id: 'E-601', score: 'PASS', result: `${total} entities (no recent sessions)`, value: total, severity };
+    }
+
+    const score: Score = recent > 0 ? 'PASS' : 'WARN';
     return {
       id: 'E-601',
-      score: count > 10 ? 'PASS' : 'FAIL',
-      result: `${count} entities from ${totalObs} observations`,
-      value: count,
+      score,
+      result: `${total} total, ${recent} new in 7d (${totalObs} obs)`,
+      value: total,
       severity,
     };
   }
@@ -690,25 +774,55 @@ export class DoctorService {
   }
 
   private checkDiaryEntries(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
-    const count = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM agent_diary');
+    const total = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM agent_diary');
 
+    if (total <= 3) {
+      return { id: 'E-701', score: 'FAIL', result: `${total} diary entries`, value: total, severity };
+    }
+
+    // Check active days in last 7 days
+    const activeDays = safeCount(this.db, "SELECT COUNT(DISTINCT DATE(created_at)) as cnt FROM agent_diary WHERE created_at > datetime('now', '-7 days')");
+
+    // No recent sessions → fall back to total-only
+    const recentSessions = safeCount(this.db, "SELECT COUNT(*) as cnt FROM sdk_sessions WHERE started_at > datetime('now', '-7 days')");
+    if (recentSessions === 0) {
+      return { id: 'E-701', score: 'PASS', result: `${total} entries (no recent sessions)`, value: total, severity };
+    }
+
+    const score: Score = activeDays >= 2 ? 'PASS' : 'WARN';
     return {
       id: 'E-701',
-      score: count > 3 ? 'PASS' : 'FAIL',
-      result: `${count} diary entries`,
-      value: count,
+      score,
+      result: `${total} total, ${activeDays} active days in 7d`,
+      value: total,
       severity,
     };
   }
 
   private checkVectorSync(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
-    const count = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM sync_state');
+    const synced = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM sync_state');
+    const totalObs = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM observations');
+
+    if (totalObs === 0) {
+      return { id: 'E-801', score: 'PASS', result: 'No observations to sync', value: 100, severity };
+    }
+
+    if (synced === 0) {
+      return { id: 'E-801', score: 'FAIL', result: `0/${totalObs} synced (0%)`, value: 0, severity };
+    }
+
+    const pct = (synced / totalObs) * 100;
+    const rounded = Math.round(pct * 10) / 10;
+
+    let score: Score = 'FAIL';
+    if (pct >= 50) score = 'PASS';
+    else if (pct >= 10) score = 'WARN';
 
     return {
       id: 'E-801',
-      score: count > 0 ? 'PASS' : 'FAIL',
-      result: `${count} sync records`,
-      value: count,
+      score,
+      result: `${synced}/${totalObs} synced (${rounded}%)`,
+      value: rounded,
       severity,
     };
   }

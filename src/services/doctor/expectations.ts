@@ -86,7 +86,7 @@ export const EXPECTATIONS: ExpectationDef[] = [
     name: 'Summary Coverage',
     category: 'Session Summaries',
     severity: 'HIGH',
-    threshold: '>=50% of sessions have summaries',
+    threshold: '>=50% total AND >=70% recent 7d completed; fallback to total if no recent sessions',
   },
   {
     id: 'E-302',
@@ -102,14 +102,14 @@ export const EXPECTATIONS: ExpectationDef[] = [
     name: 'Compilation Runs',
     category: 'Knowledge Compilation',
     severity: 'CRITICAL',
-    threshold: '>0 compilation runs',
+    threshold: '>0 total AND ran in last 7 days; WARN if >0 but stale',
   },
   {
     id: 'E-402',
     name: 'Compiled Knowledge',
     category: 'Knowledge Compilation',
     severity: 'CRITICAL',
-    threshold: '>0 knowledge pages',
+    threshold: '>0 total AND new/updated pages in last 7 days; WARN if stale',
   },
 
   // Category 5: Entity Extraction
@@ -118,7 +118,7 @@ export const EXPECTATIONS: ExpectationDef[] = [
     name: 'Entity Extraction',
     category: 'Entity Extraction',
     severity: 'HIGH',
-    threshold: '>10 entities',
+    threshold: '>10 total AND new entities in last 7 days; WARN if stale',
   },
   {
     id: 'E-602',
@@ -134,7 +134,7 @@ export const EXPECTATIONS: ExpectationDef[] = [
     name: 'Diary Entries',
     category: 'Agent Diary',
     severity: 'LOW',
-    threshold: '>3 diary entries',
+    threshold: '>3 total AND >=2 active days in last 7 days; WARN if stale',
   },
 
   // Category 7: Search & Retrieval
@@ -143,7 +143,7 @@ export const EXPECTATIONS: ExpectationDef[] = [
     name: 'Vector Sync',
     category: 'Search & Retrieval',
     severity: 'HIGH',
-    threshold: '>0 sync records',
+    threshold: '>=50% coverage; WARN >=10%; FAIL <10% or 0',
   },
   {
     id: 'E-802',
@@ -168,7 +168,7 @@ export const EXPECTATIONS: ExpectationDef[] = [
     name: 'Error Rate',
     category: 'Error Health',
     severity: 'HIGH',
-    threshold: '<=5% error rate in logs',
+    threshold: '<=2% PASS, 2-5% WARN, >5% FAIL',
   },
 ];
 
