@@ -40,6 +40,9 @@ export class CompilationEngine {
     this.gateKeeper = new GateKeeper(db, lockManager, settings);
   }
 
+  /** Maximum time (ms) for a single compilation run before forced abort. */
+  private static readonly COMPILATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
   /**
    * Attempt a full compilation run for the given project.
    *
@@ -59,63 +62,7 @@ export class CompilationEngine {
     const logId = compilationLogger.startLog(project);
 
     try {
-      const ctx: CompilationContext = {
-        project,
-        db: this.db,
-        lastCompilationEpoch: 0, // Will use gate's internal tracking
-      };
-
-      // 2. Orient — load existing knowledge
-      const existingKnowledge = this.orient.execute(ctx);
-
-      // 3. Gather — query, filter, group observations
-      const groups = this.gather.execute(ctx);
-
-      // 3b. Entity extraction — populate knowledge graph from gathered observations
-      try {
-        const extractor = new EntityExtractor(this.db);
-        const allObs = groups.flatMap(g => g.observations);
-        for (const obs of allObs) {
-          extractor.extractFromObservation(obs, project);
-        }
-      } catch {
-        // Entity extraction is non-blocking — compilation continues on failure
-      }
-
-      if (groups.length === 0) {
-        // Nothing to compile — still a successful run, just empty
-        this.gateKeeper.recordCompilationTime();
-        return {
-          pagesCreated: 0,
-          pagesUpdated: 0,
-          observationsProcessed: 0,
-          errors: [],
-        };
-      }
-
-      // 4. Consolidate — merge into compiled pages (async: may call LLM)
-      const pages = await this.consolidate.execute(groups, existingKnowledge, ctx);
-
-      // 4b. Mermaid diagram generation — non-critical, appended if available
-      try {
-        const diagramPage = await this.consolidate.generateMermaidDiagrams(pages, ctx);
-        if (diagramPage) pages.push(diagramPage);
-      } catch { /* non-critical — compilation continues without diagrams */ }
-
-      // 5. Prune — write to DB + update observation metadata
-      const result = this.prune.execute(pages, existingKnowledge, ctx);
-
-      // 6. Record completion
-      this.gateKeeper.recordCompilationTime();
-
-      // Log the compilation run
-      compilationLogger.completeLog(logId, {
-        observationsProcessed: result.observationsProcessed,
-        pagesCreated: result.pagesCreated,
-        pagesUpdated: result.pagesUpdated,
-        tokensUsed: 0,
-      });
-
+      const result = await this.runPipelineWithTimeout(project, logId, compilationLogger);
       return result;
     } catch (err) {
       // Always release the lock on failure
@@ -123,6 +70,109 @@ export class CompilationEngine {
       compilationLogger.failLog(logId, (err as Error).message);
       throw err;
     }
+  }
+
+  /**
+   * Run the compilation pipeline with a timeout guard.
+   * Prevents indefinite hangs (e.g. from stalled LLM calls) from holding the lock forever.
+   */
+  private async runPipelineWithTimeout(
+    project: string,
+    logId: number,
+    compilationLogger: CompilationLogger
+  ): Promise<CompilationResult> {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Compilation timed out after ${CompilationEngine.COMPILATION_TIMEOUT_MS / 1000}s`)),
+        CompilationEngine.COMPILATION_TIMEOUT_MS);
+    });
+
+    // Note: Promise.race does not cancel the losing promise — if the pipeline
+    // wins, the timer is cleared below; if the timeout wins, the pipeline
+    // continues running in the background until its LLM calls complete.
+    try {
+      return await Promise.race([this.runPipeline(project, logId, compilationLogger), timeoutPromise]);
+    } finally {
+      clearTimeout(timer!);
+    }
+  }
+
+  /**
+   * Core compilation pipeline logic (extracted for timeout wrapping).
+   */
+  private async runPipeline(
+    project: string,
+    logId: number,
+    compilationLogger: CompilationLogger
+  ): Promise<CompilationResult> {
+    const ctx: CompilationContext = {
+      project,
+      db: this.db,
+      lastCompilationEpoch: 0, // Will use gate's internal tracking
+    };
+
+    // 2. Orient — load existing knowledge
+    const existingKnowledge = this.orient.execute(ctx);
+
+    // 3. Gather — query, filter, group observations
+    const groups = this.gather.execute(ctx);
+
+    // 3b. Entity extraction — populate knowledge graph from gathered observations
+    try {
+      const extractor = new EntityExtractor(this.db);
+      const allObs = groups.flatMap(g => g.observations);
+      for (const obs of allObs) {
+        extractor.extractFromObservation(obs, project);
+      }
+    } catch {
+      // Entity extraction is non-blocking — compilation continues on failure
+    }
+
+    if (groups.length === 0) {
+      // Nothing to compile — still a successful run, just empty
+      this.gateKeeper.recordCompilationTime();
+      return {
+        pagesCreated: 0,
+        pagesUpdated: 0,
+        observationsProcessed: 0,
+        errors: [],
+      };
+    }
+
+    // 4. Consolidate — merge into compiled pages (async: may call LLM)
+    const pages = await this.consolidate.execute(groups, existingKnowledge, ctx);
+
+    // 4b. Mermaid diagram generation — non-critical, appended if available
+    try {
+      const diagramPage = await this.consolidate.generateMermaidDiagrams(pages, ctx);
+      if (diagramPage) pages.push(diagramPage);
+    } catch { /* non-critical — compilation continues without diagrams */ }
+
+    // 5. Prune — write to DB + update observation metadata
+    const result = this.prune.execute(pages, existingKnowledge, ctx);
+
+    // 6. Record completion
+    this.gateKeeper.recordCompilationTime();
+
+    // Log the compilation run
+    compilationLogger.completeLog(logId, {
+      observationsProcessed: result.observationsProcessed,
+      pagesCreated: result.pagesCreated,
+      pagesUpdated: result.pagesUpdated,
+      tokensUsed: 0,
+    });
+
+    // 7. Cross-project promotion — detect and promote shared patterns (non-blocking)
+    try {
+      const { CrossProjectService } = await import('../promotion/CrossProjectService.js');
+      const crossProject = new CrossProjectService(ctx.db);
+      const patterns = crossProject.detectGlobalPatterns();
+      for (const pattern of patterns) {
+        crossProject.promoteToGlobal(pattern);
+      }
+    } catch { /* non-critical — compilation result is unaffected */ }
+
+    return result;
   }
 
   // ─── Testing helpers ────────────────────────────────────────────────────────

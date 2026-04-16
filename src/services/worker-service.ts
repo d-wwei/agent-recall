@@ -483,21 +483,58 @@ export class WorkerService {
           'SELECT id, narrative, title, type, project, memory_session_id, created_at_epoch FROM observations WHERE narrative IS NOT NULL ORDER BY id'
         ).all() as { id: number; narrative: string; title: string; type: string; project: string; memory_session_id: string; created_at_epoch: number }[];
 
-        const ids = observations.map(o => `obs_${o.id}`);
-        const documents = observations.map(o => o.narrative || o.title || '');
-        const metadatas = observations.map(o => ({
-          doc_type: o.type || 'observation',
-          project: o.project || '',
-          session_id: o.memory_session_id || '',
-          title: o.title || '',
-          created_at_epoch: o.created_at_epoch || 0,
-        }));
+        // Filter out observations with empty/problematic content
+        const valid = observations.filter(o => {
+          const doc = o.narrative || o.title || '';
+          return doc.length > 0;
+        });
 
-        await seekdbSync.upsertDocuments(ids, documents, metadatas);
-        logger.info('SEEKDB_SYNC', 'Backfill complete', { count: observations.length });
-        res.json({ status: 'ok', synced: observations.length });
+        // Sync in smaller batches to isolate failures
+        const BATCH = 50;
+        let synced = 0;
+        let errors = 0;
+        for (let i = 0; i < valid.length; i += BATCH) {
+          const batch = valid.slice(i, i + BATCH);
+          try {
+            await seekdbSync.upsertDocuments(
+              batch.map(o => `obs_${o.id}`),
+              batch.map(o => o.narrative || o.title || 'untitled'),
+              batch.map(o => ({
+                doc_type: o.type || 'observation',
+                project: o.project || '',
+                session_id: o.memory_session_id || '',
+                title: (o.title || '').slice(0, 500),
+                created_at_epoch: o.created_at_epoch || 0,
+              }))
+            );
+            synced += batch.length;
+          } catch (batchErr) {
+            // Log and continue with next batch instead of failing entirely
+            logger.warn('SEEKDB_SYNC', `Backfill batch failed (${i}-${i + batch.length})`, {
+              error: (batchErr as Error).message
+            });
+            errors += batch.length;
+          }
+        }
+        logger.info('SEEKDB_SYNC', 'Backfill complete', { synced, errors, total: valid.length });
+        res.json({ status: 'ok', synced, errors, total: valid.length });
       } catch (err) {
         logger.error('SEEKDB_SYNC', 'Backfill failed', {}, err as Error);
+        res.status(500).json({ error: (err as Error).message });
+      }
+    });
+
+    // POST /api/admin/extract-entities — re-extract entities and facts from all observations
+    this.server.app.post('/api/admin/extract-entities', async (req, res) => {
+      const project = req.body?.project || 'agent-recall';
+      try {
+        const { EntityExtractor } = await import('./knowledge-graph/EntityExtractor.js');
+        const extractor = new EntityExtractor(this.dbManager.getSessionStore().db);
+        const result = extractor.extractFromAllObservations(project);
+        logger.info('ADMIN', 'Entity extraction complete', result);
+        res.json({ status: 'ok', ...result });
+      } catch (err) {
+        logger.error('ADMIN', 'Entity extraction failed', {}, err as Error);
         res.status(500).json({ error: (err as Error).message });
       }
     });
@@ -607,6 +644,44 @@ export class WorkerService {
         }
       } catch (err) {
         logger.warn('SYSTEM', 'Stale buffer recovery failed (non-blocking)', {
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
+
+      // Clean up ghost sessions: no useful data, older than 1 hour
+      // Covers: (a) sessions with no memory_session_id and no prompts
+      //         (b) sessions with 0 observations, <=1 prompt, no summaries, no diary
+      try {
+        const oneHourAgo = Date.now() - 3_600_000;
+        const ghostCleanup = this.dbManager.getSessionStore().db.prepare(`
+          DELETE FROM sdk_sessions WHERE started_at_epoch < ?
+            AND status != 'active'
+            AND NOT EXISTS (SELECT 1 FROM observations WHERE memory_session_id = sdk_sessions.memory_session_id)
+            AND NOT EXISTS (SELECT 1 FROM session_summaries WHERE memory_session_id = sdk_sessions.memory_session_id)
+            AND NOT EXISTS (SELECT 1 FROM agent_diary WHERE memory_session_id = sdk_sessions.memory_session_id)
+            AND (SELECT COUNT(*) FROM user_prompts WHERE content_session_id = sdk_sessions.content_session_id) <= 1
+        `).run(oneHourAgo);
+        if (ghostCleanup.changes > 0) {
+          logger.info('SYSTEM', `Cleaned up ${ghostCleanup.changes} ghost sessions (no data)`);
+        }
+      } catch (err) {
+        logger.debug('SYSTEM', 'Ghost session cleanup failed (non-blocking)', {
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
+
+      // Deduplicate observations: remove duplicate content_hash rows keeping earliest
+      try {
+        const dedupResult = this.dbManager.getSessionStore().db.prepare(`
+          DELETE FROM observations WHERE content_hash IS NOT NULL AND id NOT IN (
+            SELECT MIN(id) FROM observations WHERE content_hash IS NOT NULL GROUP BY content_hash
+          )
+        `).run();
+        if (dedupResult.changes > 0) {
+          logger.info('SYSTEM', `Deduplicated ${dedupResult.changes} duplicate observations`);
+        }
+      } catch (err) {
+        logger.debug('SYSTEM', 'Observation dedup failed (non-blocking)', {
           error: err instanceof Error ? err.message : String(err)
         });
       }
@@ -732,6 +807,206 @@ export class WorkerService {
             error: syncErr instanceof Error ? syncErr.message : String(syncErr)
           });
         }
+
+        // Auto-backfill SeekDB vector index on startup (non-blocking)
+        const seekdbSync = this.dbManager.getSeekdbSync();
+        if (seekdbSync) {
+          setImmediate(async () => {
+            try {
+              const store = this.dbManager.getSessionStore();
+              const observations = store.db.prepare(
+                'SELECT id, narrative, title, type, project, memory_session_id, created_at_epoch FROM observations WHERE narrative IS NOT NULL ORDER BY id'
+              ).all() as { id: number; narrative: string; title: string; type: string; project: string; memory_session_id: string; created_at_epoch: number }[];
+
+              const valid = observations.filter(o => (o.narrative || o.title || '').length > 0);
+              if (valid.length === 0) return;
+
+              const BATCH = 50;
+              let synced = 0;
+              let errors = 0;
+              for (let i = 0; i < valid.length; i += BATCH) {
+                const batch = valid.slice(i, i + BATCH);
+                try {
+                  await seekdbSync.upsertDocuments(
+                    batch.map(o => `obs_${o.id}`),
+                    batch.map(o => o.narrative || o.title || 'untitled'),
+                    batch.map(o => ({
+                      doc_type: o.type || 'observation',
+                      project: o.project || '',
+                      session_id: o.memory_session_id || '',
+                      title: (o.title || '').slice(0, 500),
+                      created_at_epoch: o.created_at_epoch || 0,
+                    }))
+                  );
+                  // Track synced observations in sync_state for audit visibility
+                  const now = new Date().toISOString();
+                  const syncStmt = store.db.prepare(
+                    "INSERT OR REPLACE INTO sync_state (file_path, content_hash, source_type, last_sync_at) VALUES (?, ?, 'seekdb', ?)"
+                  );
+                  for (const o of batch) {
+                    try { syncStmt.run(`seekdb:obs_${o.id}`, String(o.created_at_epoch || o.id), now); } catch {}
+                  }
+                  synced += batch.length;
+                } catch (batchErr) {
+                  logger.debug('SEEKDB_SYNC', `Auto-backfill batch failed (${i}-${i + batch.length})`, {
+                    error: (batchErr as Error).message
+                  });
+                  errors += batch.length;
+                }
+              }
+              if (synced > 0 || errors > 0) {
+                logger.info('SEEKDB_SYNC', 'Auto-backfill complete', { synced, errors, total: valid.length });
+              }
+            } catch (err) {
+              logger.warn('SEEKDB_SYNC', 'Auto-backfill failed (non-blocking)', {
+                error: err instanceof Error ? err.message : String(err)
+              });
+            }
+          });
+        }
+
+        // Backfill summaries for completed/interrupted sessions missing them (non-blocking)
+        setImmediate(() => {
+          try {
+            const store = this.dbManager.getSessionStore();
+            const missing = store.db.prepare(`
+              SELECT s.content_session_id, s.memory_session_id, s.project, s.status
+              FROM sdk_sessions s
+              WHERE s.status IN ('completed', 'interrupted')
+                AND s.memory_session_id IS NOT NULL AND s.memory_session_id != ''
+                AND NOT EXISTS (SELECT 1 FROM session_summaries WHERE memory_session_id = s.memory_session_id)
+            `).all() as { content_session_id: string; memory_session_id: string; project: string; status: string }[];
+
+            if (missing.length === 0) return;
+
+            let filled = 0;
+            const now = new Date().toISOString();
+            const nowEpoch = Date.now();
+            for (const sess of missing) {
+              try {
+                const prompts = store.db.prepare(
+                  'SELECT prompt_text FROM user_prompts WHERE content_session_id = ? ORDER BY prompt_number ASC LIMIT 5'
+                ).all(sess.content_session_id) as { prompt_text: string }[];
+                const observations = store.db.prepare(
+                  'SELECT title, narrative, type FROM observations WHERE memory_session_id = ? ORDER BY created_at_epoch ASC LIMIT 10'
+                ).all(sess.memory_session_id) as { title: string; narrative: string; type: string }[];
+
+                if (prompts.length === 0 && observations.length === 0) continue;
+
+                const request = prompts.map(p => p.prompt_text).join('; ').slice(0, 500) || 'No prompt recorded';
+                const completed = observations.map(o => `[${o.type}] ${o.title}`).join('; ').slice(0, 500) || `Session ${sess.status}`;
+                const learned = observations.filter(o => o.narrative).map(o => o.narrative).join('; ').slice(0, 500) || '';
+
+                store.db.prepare(`
+                  INSERT INTO session_summaries
+                  (memory_session_id, project, request, investigated, learned, completed, next_steps, notes, created_at, created_at_epoch)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                  sess.memory_session_id, sess.project, request,
+                  observations.length > 0
+                    ? `Worked on: ${[...new Set(observations.map(o => o.type))].join(', ')}`
+                    : `Session ${sess.status} without detailed investigation`,
+                  learned || `Session ${sess.status} without detailed observations`,
+                  completed,
+                  sess.status === 'interrupted' ? 'Session was interrupted. Resume from context.' : 'Continue based on session context',
+                  `[auto-backfilled on worker startup — ${sess.status} session]`,
+                  now, nowEpoch
+                );
+                // Also create diary entry if missing
+                const existingDiary = store.db.prepare(
+                  'SELECT id FROM agent_diary WHERE memory_session_id = ? LIMIT 1'
+                ).get(sess.memory_session_id);
+                if (!existingDiary) {
+                  store.db.prepare(
+                    'INSERT INTO agent_diary (memory_session_id, project, entry, created_at) VALUES (?, ?, ?, ?)'
+                  ).run(sess.memory_session_id, sess.project, `Session: ${request}. ${completed}`.slice(0, 1000), now);
+                }
+
+                filled++;
+              } catch { /* skip individual failures */ }
+            }
+            if (filled > 0) {
+              logger.info('SESSION', `Backfilled ${filled} missing summaries + diary entries on startup (${missing.length} candidates)`);
+            }
+          } catch (err) {
+            logger.debug('SESSION', 'Summary backfill failed (non-blocking)', {
+              error: err instanceof Error ? err.message : String(err)
+            });
+          }
+        });
+
+        // Backfill diary entries for sessions with summaries but no diary (non-blocking)
+        setImmediate(() => {
+          try {
+            const store = this.dbManager.getSessionStore();
+            const missingDiary = store.db.prepare(`
+              SELECT s.memory_session_id, s.project, sm.request, sm.completed
+              FROM sdk_sessions s
+              JOIN session_summaries sm ON sm.memory_session_id = s.memory_session_id
+              WHERE s.status IN ('completed', 'interrupted')
+                AND NOT EXISTS (SELECT 1 FROM agent_diary WHERE memory_session_id = s.memory_session_id)
+            `).all() as { memory_session_id: string; project: string; request: string; completed: string }[];
+
+            if (missingDiary.length > 0) {
+              const now = new Date().toISOString();
+              for (const d of missingDiary) {
+                try {
+                  store.db.prepare(
+                    'INSERT INTO agent_diary (memory_session_id, project, entry, created_at) VALUES (?, ?, ?, ?)'
+                  ).run(d.memory_session_id, d.project, `Session: ${d.request}. ${d.completed}`.slice(0, 1000), now);
+                } catch {}
+              }
+              logger.info('DIARY', `Backfilled ${missingDiary.length} missing diary entries`);
+            }
+          } catch (err) {
+            logger.debug('DIARY', 'Diary backfill failed (non-blocking)', {
+              error: err instanceof Error ? err.message : String(err)
+            });
+          }
+        });
+
+        // Populate observation_links from shared entities (non-blocking)
+        setImmediate(() => {
+          try {
+            const store = this.dbManager.getSessionStore();
+            const existingLinks = (store.db.prepare('SELECT COUNT(*) as cnt FROM observation_links').get() as { cnt: number }).cnt;
+            if (existingLinks > 0) return; // Already populated
+
+            // Find observations that share entities (same subject in facts table)
+            const sharedEntity = store.db.prepare(`
+              SELECT DISTINCT f1.source_observation_id as source_id, f2.source_observation_id as target_id,
+                e.name as entity
+              FROM facts f1
+              JOIN facts f2 ON f1.subject = f2.subject
+                AND f1.source_observation_id IS NOT NULL
+                AND f2.source_observation_id IS NOT NULL
+                AND f1.source_observation_id < f2.source_observation_id
+              JOIN entities e ON e.id = f1.subject
+              WHERE e.type IN ('concept', 'tool', 'project', 'file')
+              LIMIT 500
+            `).all() as { source_id: number; target_id: number; entity: string }[];
+
+            if (sharedEntity.length > 0) {
+              const stmt = store.db.prepare(
+                'INSERT OR IGNORE INTO observation_links (source_id, target_id, relation, auto_detected) VALUES (?, ?, ?, 1)'
+              );
+              let inserted = 0;
+              for (const link of sharedEntity) {
+                try {
+                  const r = stmt.run(link.source_id, link.target_id, `shared_entity:${link.entity}`);
+                  if (r.changes > 0) inserted++;
+                } catch {}
+              }
+              if (inserted > 0) {
+                logger.info('SYSTEM', `Populated ${inserted} observation links from shared entities`);
+              }
+            }
+          } catch (err) {
+            logger.debug('SYSTEM', 'Observation links population failed (non-blocking)', {
+              error: err instanceof Error ? err.message : String(err)
+            });
+          }
+        });
 
         // Start periodic tasks for newly wired services
         this.startBackupSchedule();
@@ -872,6 +1147,68 @@ export class WorkerService {
 
       // Data retention auto-cleanup (opt-in via settings)
       this.startDataRetentionCleanup();
+
+      // Cancel stuck 'running' compilation logs from crashed previous runs
+      try {
+        const db = this.dbManager.getSessionStore().db;
+        const stuckCount = (db.prepare(
+          "SELECT COUNT(*) as cnt FROM compilation_logs WHERE status = 'running'"
+        ).get() as { cnt: number })?.cnt ?? 0;
+        if (stuckCount > 0) {
+          db.prepare(
+            "UPDATE compilation_logs SET status = 'cancelled', completed_at = ?, error = 'Cancelled: stuck from previous worker run' WHERE status = 'running'"
+          ).run(new Date().toISOString());
+          logger.info('COMPILATION', `Cancelled ${stuckCount} stuck compilation logs from previous run`);
+        }
+      } catch (err) {
+        logger.warn('COMPILATION', 'Failed to clean up stuck compilation logs', { error: String(err) });
+      }
+
+      // Release any stale compilation locks on startup
+      if (this.lockManager) {
+        this.lockManager.releaseAll();
+        logger.debug('SYSTEM', 'Released all stale locks on startup');
+      }
+
+      // Trigger compilation for ALL projects with observations (non-blocking)
+      if (this.lockManager) {
+        setImmediate(async () => {
+          try {
+            const { CompilationEngine } = await import('./compilation/CompilationEngine.js');
+            const { SettingsDefaultsManager } = await import('../shared/SettingsDefaultsManager.js');
+            const { USER_SETTINGS_PATH } = await import('../shared/paths.js');
+            const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+            const store = this.dbManager.getSessionStore();
+
+            // Discover all projects with observations
+            const projects = store.db.prepare(
+              "SELECT project, COUNT(*) as cnt FROM observations WHERE project IS NOT NULL AND project != '' GROUP BY project ORDER BY cnt DESC"
+            ).all() as { project: string; cnt: number }[];
+
+            for (const { project } of projects) {
+              try {
+                const engine = new CompilationEngine(
+                  store.db,
+                  this.lockManager!,
+                  settings as unknown as Record<string, string>
+                );
+                const result = await engine.tryCompile(project);
+                if (result && (result.pagesCreated > 0 || result.pagesUpdated > 0)) {
+                  logger.info('COMPILATION', 'Startup compilation completed', { project, ...result });
+                }
+              } catch (err) {
+                logger.debug('COMPILATION', `Startup compilation failed for ${project} (non-blocking)`, {
+                  error: err instanceof Error ? err.message : String(err)
+                });
+              }
+            }
+          } catch (err) {
+            logger.debug('COMPILATION', 'Startup compilation discovery failed (non-blocking)', {
+              error: err instanceof Error ? err.message : String(err)
+            });
+          }
+        });
+      }
 
       // Auto-recover orphaned queues (fire-and-forget with error logging)
       this.processPendingQueues(50).then(result => {
@@ -1634,6 +1971,9 @@ async function main() {
         process.exit(0);
       }
       removePidFile();
+
+      // Wait for OS to fully release the socket (TIME_WAIT state)
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       const pid = spawnDaemon(__filename, port);
       if (pid === undefined) {

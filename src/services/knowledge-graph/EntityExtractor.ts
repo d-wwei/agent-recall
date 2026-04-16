@@ -57,14 +57,39 @@ export class EntityExtractor {
       factCount++;
     }
 
-    // 2. Extract concept entities from concepts JSON
+    // 2. Extract concept entities from concepts JSON and create facts
     const concepts = this.parseJsonArray(observation.concepts) || [];
+    const conceptEntityIds: string[] = [];
     for (const concept of concepts) {
       if (typeof concept !== 'string' || !concept) continue;
 
       const entityId = this.kgService.resolveEntityId(project, 'concept', concept);
       this.kgService.upsertEntity(entityId, concept, 'concept');
+      conceptEntityIds.push(entityId);
       entityCount++;
+    }
+
+    // 2b. Create co-occurrence facts between concepts that appear in the same observation
+    for (let i = 0; i < conceptEntityIds.length; i++) {
+      for (let j = i + 1; j < conceptEntityIds.length; j++) {
+        const [a, b] = conceptEntityIds[i] < conceptEntityIds[j]
+          ? [conceptEntityIds[i], conceptEntityIds[j]]
+          : [conceptEntityIds[j], conceptEntityIds[i]];
+        const factId = `${a}:co_occurs:${b}`;
+        this.kgService.addFact(factId, a, 'co_occurs_with', b, 0.8, observation.id);
+        factCount++;
+      }
+    }
+
+    // 2c. Link observation type to concepts (e.g., "discovery" → "react-hooks")
+    if (observation.type && conceptEntityIds.length > 0) {
+      const obsTypeEntityId = this.kgService.resolveEntityId(project, 'activity', observation.type);
+      this.kgService.upsertEntity(obsTypeEntityId, observation.type, 'activity');
+      for (const conceptId of conceptEntityIds) {
+        const factId = `${obsTypeEntityId}:involves:${conceptId}:${observation.id}`;
+        this.kgService.addFact(factId, obsTypeEntityId, 'involves', conceptId, 0.7, observation.id);
+        factCount++;
+      }
     }
 
     // 3. Extract tool entities from title

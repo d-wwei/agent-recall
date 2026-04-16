@@ -30,6 +30,9 @@ const MIN_NEW_SESSIONS = 5;
 /** Lock name used to prevent concurrent compilations */
 const COMPILATION_LOCK = 'compilation';
 
+/** Maximum lock hold time (ms) before forced release: 10 minutes */
+const STALE_LOCK_THRESHOLD_MS = 10 * 60 * 1000;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface GateCheckResult {
@@ -92,6 +95,14 @@ export class GateKeeper {
     }
 
     // Gate 5 — Lock gate (no concurrent compilation in progress)
+    // If the lock is held but stale (>10 min, likely from a hung pipeline), force-release first
+    if (this.lockManager.isLocked(COMPILATION_LOCK)) {
+      const lockAge = this.lockManager.getLockAge(COMPILATION_LOCK);
+      if (lockAge > STALE_LOCK_THRESHOLD_MS) {
+        logger.warn('COMPILATION', 'Force-releasing stale compilation lock', { lockAgeMs: lockAge });
+        this.lockManager.release(COMPILATION_LOCK);
+      }
+    }
     const acquired = this.lockManager.acquire(COMPILATION_LOCK);
     if (!acquired) {
       logger.info('COMPILATION', 'Gate BLOCKED: lock_gate', { project });
