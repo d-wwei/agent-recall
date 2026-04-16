@@ -337,7 +337,7 @@ describe('GatherStage', () => {
     expect(result[0].observations[0].title).toBe('Our project');
   });
 
-  it('skips observations already compiled into knowledge pages (incremental cache)', () => {
+  it('includes all observations in topic when at least one is new (incremental cache)', () => {
     const id1 = insertObservation(db, { concepts: ['auth'], title: 'Already compiled' });
     const id2 = insertObservation(db, { concepts: ['auth'], title: 'New observation' });
 
@@ -350,9 +350,28 @@ describe('GatherStage', () => {
     const stage = new GatherStage();
     const result = stage.execute({ project: PROJECT, db, lastCompilationEpoch: 0 });
 
+    // Topic has a new observation (id2), so ALL observations in the topic are included
+    // for full-context re-merge (enables page updates with version > 1)
     expect(result).toHaveLength(1);
-    expect(result[0].observations).toHaveLength(1);
-    expect(result[0].observations[0].title).toBe('New observation');
+    expect(result[0].observations).toHaveLength(2);
+  });
+
+  it('skips topics where all observations are already compiled', () => {
+    const id1 = insertObservation(db, { concepts: ['auth'], title: 'Already compiled' });
+    insertObservation(db, { concepts: ['perf'], title: 'New in different topic' });
+
+    // auth topic is fully compiled
+    db.prepare(
+      `INSERT INTO compiled_knowledge (project, topic, content, source_observation_ids, compiled_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(PROJECT, 'auth', 'Old content', JSON.stringify([id1]), new Date().toISOString());
+
+    const stage = new GatherStage();
+    const result = stage.execute({ project: PROJECT, db, lastCompilationEpoch: 0 });
+
+    // Only 'perf' topic returned — 'auth' has no new observations
+    expect(result).toHaveLength(1);
+    expect(result[0].topic).toBe('perf');
   });
 
   it('includes all observations when no compiled_knowledge exists', () => {
