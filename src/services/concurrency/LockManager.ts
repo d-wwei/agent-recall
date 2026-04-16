@@ -85,6 +85,17 @@ export class LockManager {
   }
 
   /**
+   * Get the age (ms) of a lock file. Returns 0 if the lock does not exist.
+   */
+  getLockAge(taskName: string): number {
+    const lockPath = this.lockPath(taskName);
+    if (!existsSync(lockPath)) return 0;
+    const content = this.readLockFile(lockPath);
+    if (!content) return 0;
+    return Date.now() - new Date(content.acquiredAt).getTime();
+  }
+
+  /**
    * Check whether `taskName` is currently locked by a live process.
    *
    * A lock file with a dead PID is NOT considered actively held.

@@ -92,15 +92,47 @@ export class SeekdbSync {
   }
 
   /**
-   * Sanitize metadata: remove null, undefined, and empty string values.
-   * seekdb (like ChromaDB) rejects these in metadata.
+   * Sanitize metadata: enforce string|number types, remove invalid values.
+   * seekdb (like ChromaDB) stores metadata as JSON in SQLite — non-primitive
+   * values or control characters cause "Invalid JSON text" errors.
    */
   private sanitizeMetadata(metadata: Record<string, any>): Record<string, string | number> {
-    return Object.fromEntries(
-      Object.entries(metadata).filter(
-        ([_, v]) => v !== null && v !== undefined && v !== ''
-      )
-    ) as Record<string, string | number>;
+    const result: Record<string, string | number> = {};
+    for (const [key, value] of Object.entries(metadata)) {
+      if (value === null || value === undefined || value === '') continue;
+      if (typeof value === 'number') {
+        result[key] = isFinite(value) ? value : 0;
+      } else if (typeof value === 'boolean') {
+        result[key] = value ? 1 : 0;
+      } else if (typeof value === 'string') {
+        // Strip characters that break seekdb's internal SQLite JSON handling:
+        // - Control characters (C0 range except \t)
+        // - Double quotes, backslashes, newlines/carriage returns
+        //   (seekdb embeds metadata in JSON via SQLite json functions without proper escaping)
+        result[key] = value
+          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+          .replace(/["\\\n\r]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 1000);
+      } else {
+        // Convert objects/arrays to JSON string
+        try {
+          result[key] = JSON.stringify(value).slice(0, 1000);
+        } catch {
+          // Skip values that can't be serialized
+        }
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Sanitize document text for SeekDB storage.
+   * Strips control characters that cause JSON serialization errors.
+   */
+  private sanitizeDocument(doc: string): string {
+    return doc.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   }
 
   /**
@@ -121,7 +153,7 @@ export class SeekdbSync {
     try {
       await this.collection!.upsert({
         ids: [`obs_${id}`],
-        documents: [document],
+        documents: [this.sanitizeDocument(document)],
         metadatas: [cleanMeta],
       });
 
@@ -153,7 +185,7 @@ export class SeekdbSync {
     try {
       await this.collection!.upsert({
         ids: [`summary_${id}`],
-        documents: [document],
+        documents: [this.sanitizeDocument(document)],
         metadatas: [cleanMeta],
       });
 
@@ -192,7 +224,7 @@ export class SeekdbSync {
 
         await this.collection!.upsert({
           ids: batchIds,
-          documents: batchDocs,
+          documents: batchDocs.map(d => this.sanitizeDocument(d)),
           metadatas: batchMetas,
         });
       }

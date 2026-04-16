@@ -38,18 +38,11 @@ export class GatherStage {
       return [];
     }
 
-    // Incremental cache: skip observations already compiled into knowledge pages
-    const compiledSourceIds = this.getCompiledSourceIds(ctx);
-    const uncached = compiledSourceIds.size > 0
-      ? rows.filter(obs => !compiledSourceIds.has(obs.id))
-      : rows;
+    // Privacy filter first (applies to all observations)
+    const filtered = this.privacyGuard.filterForCompilation(rows);
 
-    // Privacy filter
-    const filtered = this.privacyGuard.filterForCompilation(uncached);
-
-    // Group by first concept
+    // Group ALL observations by topic
     const groupMap = new Map<string, ObservationRow[]>();
-
     for (const obs of filtered) {
       const topic = this.extractFirstConcept(obs);
       const group = groupMap.get(topic);
@@ -60,10 +53,22 @@ export class GatherStage {
       }
     }
 
-    // Convert to TopicGroup[]
+    // Incremental: only include topic groups that have at least one NEW (uncompiled) observation.
+    // This enables page updates (version > 1) while still being incremental.
+    const compiledSourceIds = this.getCompiledSourceIds(ctx);
     const groups: TopicGroup[] = [];
     for (const [topic, observations] of groupMap) {
-      groups.push({ topic, observations });
+      if (compiledSourceIds.size === 0) {
+        // No compiled pages yet — include everything
+        groups.push({ topic, observations });
+      } else {
+        const hasNew = observations.some(obs => !compiledSourceIds.has(obs.id));
+        if (hasNew) {
+          // Topic has new observations — include ALL observations (old + new) for full re-merge
+          groups.push({ topic, observations });
+        }
+        // Topics with only already-compiled observations are skipped
+      }
     }
 
     return groups;
@@ -113,7 +118,8 @@ export class GatherStage {
           : obs.concepts;
 
       if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-        return parsed[0];
+        // Normalize: lowercase, trim, collapse whitespace/special chars to hyphens
+        return parsed[0].trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'general';
       }
     } catch {
       // Malformed JSON — fall through to default.

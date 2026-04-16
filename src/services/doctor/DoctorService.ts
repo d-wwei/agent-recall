@@ -1,7 +1,7 @@
 /**
  * DoctorService — Health audit engine
  *
- * Runs the 16 expectations defined in monitor/EXPECTATIONS.md against
+ * Runs the 21 expectations defined in monitor/EXPECTATIONS.md against
  * the live database and log files.  Produces scored reports stored in
  * the doctor_reports table.
  *
@@ -65,7 +65,7 @@ export class DoctorService {
   // ---- Public API --------------------------------------------------------
 
   /**
-   * Run all 16 expectations, compute score, store report in DB.
+   * Run all 21 expectations, compute score, store report in DB.
    */
   runFull(): DoctorReport {
     const results = this.runAllExpectations();
@@ -456,21 +456,26 @@ export class DoctorService {
 
     switch (id) {
       case 'E-101': return this.checkWorkerHealth(severity);
+      case 'E-103': return this.checkActiveSessionAccumulation(severity);
+      case 'E-104': return this.checkSessionCompletedAt(severity);
       case 'E-201': return this.checkObservationRate(severity);
       case 'E-202': return this.checkObservationTypes(severity);
       case 'E-203': return this.checkObservationQuality(severity);
       case 'E-204': return this.checkDeduplication(severity);
+      case 'E-205': return this.checkObservationFactsCoverage(severity);
       case 'E-301': return this.checkSummaryCoverage(severity);
       case 'E-302': return this.checkSummaryStructure(severity);
       case 'E-401': return this.checkCompilationRuns(severity);
       case 'E-402': return this.checkCompiledKnowledge(severity);
+      case 'E-403': return this.checkKnowledgePageUpdates(severity);
       case 'E-601': return this.checkEntityExtraction(severity);
-      case 'E-602': return this.checkFactLinking(severity);
+      case 'E-602': return this.checkFactDensity(severity);
       case 'E-701': return this.checkDiaryEntries(severity);
       case 'E-801': return this.checkVectorSync(severity);
       case 'E-802': return this.checkFtsIndex(severity);
       case 'E-901': return this.checkPromptCapture(severity);
       case 'E-1001': return this.checkErrorRate(severity);
+      case 'E-1002': return this.checkTrendDegradation(severity);
       default:
         return { id, score: 'INFO', result: 'Unknown expectation', value: null, severity };
     }
@@ -761,14 +766,25 @@ export class DoctorService {
     };
   }
 
-  private checkFactLinking(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
-    const count = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM facts');
+  private checkFactDensity(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
+    const factCount = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM facts');
+    const entityCount = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM entities');
+
+    if (entityCount === 0) {
+      return { id: 'E-602', score: 'FAIL', result: '0 entities', value: 0, severity };
+    }
+
+    const ratio = Math.round((factCount / entityCount) * 100) / 100;
+
+    let score: Score = 'FAIL';
+    if (ratio >= 2.0) score = 'PASS';
+    else if (ratio >= 1.0) score = 'WARN';
 
     return {
       id: 'E-602',
-      score: count > 0 ? 'PASS' : 'FAIL',
-      result: `${count} facts`,
-      value: count,
+      score,
+      result: `${ratio} facts/entity (${factCount}/${entityCount})`,
+      value: ratio,
       severity,
     };
   }
@@ -910,6 +926,172 @@ export class DoctorService {
     };
   }
 
+  // ---- New checks (E-103, E-104, E-205, E-403, E-1002) -------------------
+
+  private checkActiveSessionAccumulation(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
+    const activeCount = safeCount(this.db, "SELECT COUNT(*) as cnt FROM sdk_sessions WHERE status = 'active'");
+
+    let score: Score = 'FAIL';
+    if (activeCount <= 5) score = 'PASS';
+    else if (activeCount <= 15) score = 'WARN';
+
+    return {
+      id: 'E-103',
+      score,
+      result: `${activeCount} active sessions`,
+      value: activeCount,
+      severity,
+    };
+  }
+
+  private checkSessionCompletedAt(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
+    const row = this.db.prepare(`
+      SELECT
+        COUNT(*) as completed,
+        COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) as has_end_time
+      FROM sdk_sessions WHERE status = 'completed'
+    `).get() as { completed: number; has_end_time: number } | null;
+
+    const completed = row?.completed ?? 0;
+    const hasEndTime = row?.has_end_time ?? 0;
+
+    if (completed === 0) {
+      return { id: 'E-104', score: 'INFO', result: 'No completed sessions', value: null, severity };
+    }
+
+    const pct = (hasEndTime / completed) * 100;
+    const rounded = Math.round(pct * 10) / 10;
+
+    let score: Score = 'FAIL';
+    if (pct >= 80) score = 'PASS';
+    else if (pct >= 50) score = 'WARN';
+
+    return {
+      id: 'E-104',
+      score,
+      result: `${rounded}% have completed_at (${hasEndTime}/${completed})`,
+      value: rounded,
+      severity,
+    };
+  }
+
+  private checkObservationFactsCoverage(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
+    const total = safeCount(this.db, 'SELECT COUNT(*) as cnt FROM observations');
+    if (total === 0) {
+      return { id: 'E-205', score: 'FAIL', result: '0 observations', value: 0, severity };
+    }
+
+    const hasBoth = safeCount(this.db, `
+      SELECT COUNT(*) as cnt FROM observations
+      WHERE facts IS NOT NULL AND facts != '' AND facts != '[]'
+        AND concepts IS NOT NULL AND concepts != '' AND concepts != '[]'
+    `);
+
+    const pct = (hasBoth / total) * 100;
+    const rounded = Math.round(pct * 10) / 10;
+
+    let score: Score = 'FAIL';
+    if (pct >= 50) score = 'PASS';
+    else if (pct >= 30) score = 'WARN';
+
+    return {
+      id: 'E-205',
+      score,
+      result: `${rounded}% have facts+concepts (${hasBoth}/${total})`,
+      value: rounded,
+      severity,
+    };
+  }
+
+  private checkKnowledgePageUpdates(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
+    const row = this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(CASE WHEN version > 1 THEN 1 END) as updated
+      FROM compiled_knowledge
+    `).get() as { total: number; updated: number } | null;
+
+    const total = row?.total ?? 0;
+    const updated = row?.updated ?? 0;
+
+    if (total === 0) {
+      return { id: 'E-403', score: 'INFO', result: 'No knowledge pages', value: null, severity };
+    }
+
+    const pct = (updated / total) * 100;
+    const rounded = Math.round(pct * 10) / 10;
+
+    let score: Score = 'FAIL';
+    if (pct >= 10) score = 'PASS';
+    else if (updated > 0) score = 'WARN';
+
+    return {
+      id: 'E-403',
+      score,
+      result: `${rounded}% updated (${updated}/${total} with version > 1)`,
+      value: rounded,
+      severity,
+    };
+  }
+
+  private checkTrendDegradation(severity: typeof EXPECTATIONS[number]['severity']): ExpectationResult {
+    // Requires at least 3 historical full reports
+    try {
+      const rows = this.db.prepare(`
+        SELECT score, results, created_at
+        FROM doctor_reports
+        WHERE mode IN ('full', 'deep')
+        ORDER BY created_at DESC
+        LIMIT 3
+      `).all() as Array<{ score: number; results: string; created_at: string }>;
+
+      if (rows.length < 3) {
+        return { id: 'E-1002', score: 'INFO', result: `Only ${rows.length} reports (need 3)`, value: null, severity };
+      }
+
+      // Check key metrics: E-201 (obs rate), E-301 (summary coverage), E-801 (vector sync)
+      const trackedMetrics = ['E-201', 'E-301', 'E-801'];
+      let decliningCount = 0;
+      const decliningMetrics: string[] = [];
+
+      for (const metricId of trackedMetrics) {
+        const values: number[] = [];
+        for (const row of rows) {
+          try {
+            const results = JSON.parse(row.results) as Record<string, ExpectationResult>;
+            const val = results[metricId]?.value;
+            if (typeof val === 'number') values.push(val);
+          } catch { /* skip malformed */ }
+        }
+
+        // rows are newest-first; check if values declined 3 times in a row
+        // values[0] = newest, values[1] = middle, values[2] = oldest
+        if (values.length === 3 && values[0] < values[1] && values[1] < values[2]) {
+          decliningCount++;
+          decliningMetrics.push(metricId);
+        }
+      }
+
+      let score: Score = 'PASS';
+      if (decliningCount >= 2) score = 'FAIL';
+      else if (decliningCount === 1) score = 'WARN';
+
+      const detail = decliningMetrics.length > 0
+        ? `declining: ${decliningMetrics.join(', ')}`
+        : 'no sustained decline';
+
+      return {
+        id: 'E-1002',
+        score,
+        result: `${decliningCount}/${trackedMetrics.length} metrics declining (${detail})`,
+        value: decliningCount,
+        severity,
+      };
+    } catch {
+      return { id: 'E-1002', score: 'INFO', result: 'Could not read report history', value: null, severity };
+    }
+  }
+
   // ---- Scoring -----------------------------------------------------------
 
   private computeScore(results: Record<string, ExpectationResult>): { score: number; grade: Grade } {
@@ -976,7 +1158,7 @@ export class DoctorService {
           recs.push(`[HIGH] Low entity extraction (${r.id}) - Entity extractor may not be running.`);
           break;
         case 'E-602':
-          recs.push(`[HIGH] No facts linked (${r.id}) - Fact extraction pipeline may be broken.`);
+          recs.push(`[HIGH] Low fact density (${r.id}) - Facts per entity ratio below threshold. Fact extraction may need attention.`);
           break;
         case 'E-701':
           recs.push(`[LOW] Few diary entries (${r.id}) - Agent diary not growing. Check diary service.`);
@@ -992,6 +1174,21 @@ export class DoctorService {
           break;
         case 'E-1001':
           recs.push(`[HIGH] Error rate too high (${r.id}) - Check log for repeating error patterns.`);
+          break;
+        case 'E-103':
+          recs.push(`[MEDIUM] Too many active sessions (${r.id}) - Sessions are piling up without completing. Check session lifecycle management.`);
+          break;
+        case 'E-104':
+          recs.push(`[HIGH] Completed sessions missing completed_at (${r.id}) - Session end timestamps not being recorded. Check Stop hook.`);
+          break;
+        case 'E-205':
+          recs.push(`[MEDIUM] Low facts/concepts coverage (${r.id}) - AI extraction not populating facts and concepts fields. Check extraction prompt.`);
+          break;
+        case 'E-403':
+          recs.push(`[MEDIUM] Knowledge pages never updated (${r.id}) - All pages at version 1. Compilation creates but doesn't update existing pages.`);
+          break;
+        case 'E-1002':
+          recs.push(`[HIGH] Sustained metric degradation (${r.id}) - Key metrics declining across consecutive audit runs. Investigate root cause.`);
           break;
       }
     }
